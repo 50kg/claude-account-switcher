@@ -22,7 +22,7 @@ func desktopRunning() bool                 { return false }
 func desktopProcesses() ([]uint32, string) { return nil, "" }
 func quitDesktop() error                   { return nil }
 func startDesktop(string) error            { return errUnsupported }
-func openFolder(string)                    {}
+func shellOpen(string)                     {}
 func autostartEnabled() bool               { return false }
 func setAutostart(bool) error              { return errUnsupported }
 func decryptValue([]byte) ([]byte, error)  { return nil, errUnsupported }

@@ -56,7 +56,8 @@ func startDesktop(string) error {
 	return exec.Command("open", "-a", "Claude").Run()
 }
 
-func openFolder(path string) { _ = exec.Command("open", path).Start() }
+// shellOpen opens a folder, or a web page in the default browser.
+func shellOpen(target string) { _ = exec.Command("open", target).Start() }
 
 func launchAgentPath() string {
 	home, _ := os.UserHomeDir()

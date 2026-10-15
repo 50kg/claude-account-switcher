@@ -52,6 +52,10 @@ type State struct {
 	Spending   string    `json:"spending,omitempty"`
 	SpendUntil time.Time `json:"spendUntil,omitempty"`
 	AppExe     string    `json:"appExe,omitempty"`
+	// The daily check for a new release is on unless this is set by hand.
+	NoUpdateCheck bool      `json:"noUpdateCheck,omitempty"`
+	UpdateChecked time.Time `json:"updateChecked,omitempty"`
+	LatestVersion string    `json:"latestVersion,omitempty"`
 }
 
 // switchCause says why a switch happened.
@@ -519,6 +523,8 @@ type snapshot struct {
 	Status      string
 	Note        string
 	Busy        bool
+	// Update is a version newer than this one, empty while there is none.
+	Update string
 }
 
 func (s *switcher) snapshot() snapshot {
@@ -526,6 +532,9 @@ func (s *switcher) snapshot() snapshot {
 	defer s.mu.Unlock()
 	snap := snapshot{Active: s.active, AutoSwitch: s.st.AutoSwitch, SpendWeekly: s.st.SpendWeekly, Threshold: s.st.Threshold,
 		Status: s.status, Note: s.autoNote(time.Now()), Busy: s.busy.Load()}
+	if !s.st.NoUpdateCheck && newerVersion(s.st.LatestVersion, version) {
+		snap.Update = s.st.LatestVersion
+	}
 	for _, a := range s.st.Accounts {
 		snap.Accounts = append(snap.Accounts, *a)
 	}

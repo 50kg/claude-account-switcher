@@ -30,6 +30,7 @@ Every pull request runs vet and tests on Windows and macOS.
 | `profiles.go` | Saving and restoring a sign-in, backups |
 | `sessions.go` | Copying the Claude Code chat list between accounts |
 | `usage.go` | Profile and usage requests to `api.anthropic.com`, polling, backoff |
+| `update.go` | The daily check for a new release on GitHub |
 | `desktop.go` | Reading Claude's data folder: `config.json`, cookies, the active account |
 | `crypto_*.go` | Decrypting Claude's token cache (DPAPI, keychain) |
 | `platform_*.go` | Finding, quitting and starting Claude, start at login, OS specifics |
