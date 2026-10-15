@@ -14,7 +14,7 @@ A tray tool for the Claude desktop app. It swaps the signed-in account in about 
 carries your Claude Code chats across, and shows the live usage of every account you own.
 
 **Your sign-ins never leave your machine.** Tokens stay encrypted exactly as Claude stored them,
-and the only server the switcher talks to is `api.anthropic.com`.
+and the only server they ever go to is `api.anthropic.com`.
 
 [![Download for Windows](https://img.shields.io/badge/Download_for_Windows-.exe-2ea44f?style=for-the-badge)](https://github.com/SnlperStripes/claude-account-switcher/releases/latest/download/claude-account-switcher-windows-amd64.exe)
 [![Download for macOS](https://img.shields.io/badge/Download_for_macOS-universal-555555?style=for-the-badge)](https://github.com/SnlperStripes/claude-account-switcher/releases/latest/download/claude-account-switcher-macos)
@@ -175,6 +175,8 @@ Before each switch, `config.json` and the cookie store are backed up. The last 1
 
 **Usage.** The saved token cache is decrypted in memory with Claude's own key (DPAPI on Windows, the keychain on macOS). The switcher then asks `api.anthropic.com` for each account's profile and usage, the same endpoints Claude and Claude Code use themselves. The active account is checked every two minutes, every minute from 85%, the others every ten. That endpoint is rate-limited per account and Claude polls it too, so after a `429` the switcher waits as long as the server asks, or backs off up to 30 minutes, and keeps showing the last numbers meanwhile. Claude's tokens last about a month, so a saved account keeps showing live usage without being signed in.
 
+**Updates.** Once a day the switcher asks GitHub for the version number of the latest release. Nothing about you or your accounts goes along. When a newer version is out, the top of the menu says so, and a click opens the download page. With winget, `winget upgrade SnlperStripes.ClaudeAccountSwitcher` does the same. To never contact GitHub, quit the switcher, add `"noUpdateCheck": true` to `state.json` and start it again.
+
 **The Store app quirk.** Programs started from inside the Store version of Claude, a Claude Code terminal for example, see a redirected AppData folder. The switcher notices when it was started that way and starts itself again through Explorer, so it sees the real files and survives Claude quitting.
 
 </details>
@@ -185,6 +187,7 @@ Before each switch, `config.json` and the cookie store are backed up. The last 1
 | --- | --- |
 | Saved sign-ins, state, backups, log | `~/.claude-account-switcher` (`%USERPROFILE%\.claude-account-switcher` on Windows), **Open data folder** in the menu |
 | Tokens | Stored exactly as Claude encrypted them. Never written in plain text, never sent anywhere but `api.anthropic.com` |
+| Network | `api.anthropic.com` for profiles and usage. `api.github.com` once a day for the latest version number, off with `"noUpdateCheck": true` in `state.json` |
 | Remove an account | Quit the switcher, delete its folder under `accounts/` and its entry in `state.json` |
 | Uninstall | Turn off **Start at login**, quit, delete the binary and the data folder |
 
@@ -235,7 +238,10 @@ It builds for macOS (universal) in CI, but nobody has tested it on a real Mac ye
 No. This switches the Claude desktop app, including the Claude Code chats inside it. The `claude` command in a terminal keeps its own sign-in, and the switcher does not touch it.
 
 **Do my sign-ins leave my machine?**
-No. Tokens stay encrypted exactly as Claude stored them, and the only server the switcher talks to is `api.anthropic.com`.
+No. Tokens stay encrypted exactly as Claude stored them, and the only server they ever go to is `api.anthropic.com`. The only other request is a daily check on GitHub for a new version, which sends nothing about you and can be turned off, see [How it works](#how-it-works).
+
+**How do I update?**
+The menu says so when a new version is out; click it for the download page and replace the file. With winget, run `winget upgrade SnlperStripes.ClaudeAccountSwitcher`. Your accounts and settings stay in the data folder.
 
 ## Caveats
 
@@ -246,6 +252,7 @@ This relies on how the Claude desktop app stores its files today, not on a publi
 Bug reports, ideas and pull requests are welcome, see [CONTRIBUTING.md](CONTRIBUTING.md).
 Got a Mac? A [macOS test report](https://github.com/SnlperStripes/claude-account-switcher/issues/new?template=macos_report.yml) helps a lot, even if everything just worked.
 Found a security problem? Please report it privately, see [SECURITY.md](SECURITY.md).
+If the switcher saves you time, a star helps other people with more than one account find it.
 
 ## License
 

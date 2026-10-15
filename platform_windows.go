@@ -211,7 +211,8 @@ func storeAppID(exe string) string {
 	return name + "_" + base[sep+2:] + "!" + string(m[1])
 }
 
-func openFolder(path string) { _ = start("explorer.exe", path) }
+// shellOpen opens a folder, or a web page in the default browser.
+func shellOpen(target string) { _ = start("explorer.exe", target) }
 
 const runKey = `Software\Microsoft\Windows\CurrentVersion\Run`
 const runValue = "ClaudeAccountSwitcher"
