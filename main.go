@@ -17,7 +17,7 @@ import (
 	"fyne.io/systray"
 )
 
-const version = "0.2.0"
+const version = "0.3.0"
 
 // Only one switcher may run; a second start exits quietly.
 const instancePort = "127.0.0.1:47823"
