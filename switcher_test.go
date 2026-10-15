@@ -354,3 +354,16 @@ func TestLastChatWrite(t *testing.T) {
 		t.Fatalf("got %v, want %v", got, at)
 	}
 }
+
+func TestCookieFilesFollowAppLayout(t *testing.T) {
+	d := desktop{dir: t.TempDir()}
+	if got, want := d.cookieFiles()[0], filepath.Join(d.dir, "Cookies"); got != want {
+		t.Fatalf("without Network/: %q, want %q", got, want)
+	}
+	if err := os.Mkdir(filepath.Join(d.dir, "Network"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := d.cookieFiles()[0], filepath.Join(d.dir, "Network", "Cookies"); got != want {
+		t.Fatalf("with Network/: %q, want %q", got, want)
+	}
+}

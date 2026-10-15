@@ -19,10 +19,16 @@ func (d desktop) sessionsDir() string    { return filepath.Join(d.dir, "claude-c
 func (d desktop) spacesDir() string      { return filepath.Join(d.dir, "local-agent-mode-sessions") }
 
 // cookieFiles hold the claude.ai web session. They are locked while the app runs.
+// Newer Chromium builds keep them in Network/, the macOS app keeps them in the
+// data folder itself.
 func (d desktop) cookieFiles() []string {
+	base := d.dir
+	if _, err := os.Stat(filepath.Join(d.dir, "Network")); err == nil {
+		base = filepath.Join(d.dir, "Network")
+	}
 	return []string{
-		filepath.Join(d.dir, "Network", "Cookies"),
-		filepath.Join(d.dir, "Network", "Cookies-journal"),
+		filepath.Join(base, "Cookies"),
+		filepath.Join(base, "Cookies-journal"),
 	}
 }
 
