@@ -158,7 +158,7 @@ Claude keeps its sign-in in two places inside its data folder:
 
 | Platform | Data folder |
 | --- | --- |
-| Windows, Microsoft Store app | `%LOCALAPPDATA%\Packages\Claude_<id>\LocalCache\Roaming\Claude` |
+| Windows, Microsoft Store app | `%LOCALAPPDATA%\Claude-Data\claude_<id>` since 2.42304, before that `%LOCALAPPDATA%\Packages\Claude_<id>\LocalCache\Roaming\Claude` |
 | Windows, direct download | `%APPDATA%\Claude` |
 | macOS | `~/Library/Application Support/Claude` |
 
