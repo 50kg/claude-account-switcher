@@ -18,11 +18,15 @@ import (
 	"golang.org/x/sys/windows/registry"
 )
 
-// claudeDesktop finds the app data folder. The Microsoft Store app keeps it in
-// its package folder; processes started by that app see it as %APPDATA%\Claude,
-// all others do not. The folder with the newest config.json wins.
+// claudeDesktop finds the app data folder. Since 2.42304 (October 2026) the
+// Microsoft Store app keeps it in %LOCALAPPDATA%\Claude-Data\claude_<publisher>
+// and leaves a .user-data-left marker behind. Older Store builds keep it in
+// their package folder, which processes started by that app see as
+// %APPDATA%\Claude. The folder with the newest config.json wins.
 func claudeDesktop() desktop {
 	dirs, _ := filepath.Glob(filepath.Join(os.Getenv("LOCALAPPDATA"), "Packages", "Claude_*", "LocalCache", "Roaming", "Claude"))
+	moved, _ := filepath.Glob(filepath.Join(os.Getenv("LOCALAPPDATA"), "Claude-Data", "*"))
+	dirs = append(dirs, moved...)
 	dirs = append(dirs, filepath.Join(os.Getenv("APPDATA"), "Claude"))
 	best, newest := dirs[len(dirs)-1], time.Time{}
 	for _, dir := range dirs {
