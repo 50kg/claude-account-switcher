@@ -98,7 +98,6 @@ const (
 )
 
 type switcher struct {
-	d        desktop
 	dir      string
 	mu       sync.Mutex
 	st       State
@@ -113,7 +112,7 @@ type switcher struct {
 }
 
 func newSwitcher(dir string) *switcher {
-	s := &switcher{d: claudeDesktop(), dir: dir, st: State{Threshold: defaultThreshold}, onChange: func() {},
+	s := &switcher{dir: dir, st: State{Threshold: defaultThreshold}, onChange: func() {},
 		backoff: map[string]time.Time{}, strikes: map[string]int{}}
 	if data, err := os.ReadFile(s.statePath()); err == nil {
 		_ = json.Unmarshal(data, &s.st)
@@ -127,6 +126,10 @@ func newSwitcher(dir string) *switcher {
 func (s *switcher) statePath() string             { return filepath.Join(s.dir, "state.json") }
 func (s *switcher) profileDir(uuid string) string { return filepath.Join(s.dir, "accounts", uuid) }
 func (s *switcher) backupsDir() string            { return filepath.Join(s.dir, "backups") }
+
+// app looks the data folder up on every use, because Claude can move it in an
+// update while the switcher keeps running.
+func (s *switcher) app() desktop { return claudeDesktop() }
 
 // saveState writes state.json. Callers hold s.mu.
 func (s *switcher) saveState() {
@@ -160,7 +163,7 @@ func (s *switcher) account(uuid string) *Account {
 func (s *switcher) tokenFor(uuid, active string) (string, error) {
 	path := filepath.Join(s.profileDir(uuid), "config.json")
 	if uuid == active {
-		path = s.d.configPath()
+		path = s.app().configPath()
 	}
 	cache, err := tokenCacheOf(path)
 	if err != nil {
@@ -174,7 +177,7 @@ func (s *switcher) refresh(ctx context.Context) {
 	if s.busy.Load() {
 		return
 	}
-	active, err := s.d.activeAccount()
+	active, err := s.app().activeAccount()
 	if err != nil {
 		log.Printf("read app config: %v", err)
 	}
@@ -256,7 +259,7 @@ func (s *switcher) refresh(ctx context.Context) {
 		s.mu.Unlock()
 	}
 
-	lastChat := lastChatWrite(s.d.sessionsDir())
+	lastChat := lastChatWrite(s.app().sessionsDir())
 	s.mu.Lock()
 	adding := !s.addingAt.IsZero()
 	if added && adding {
@@ -365,16 +368,16 @@ func (s *switcher) restart(change func(active string) error) error {
 			s.setStatus("Could not start Claude: " + err.Error())
 		}
 	}()
-	bk, err := backup(s.d, s.backupsDir())
+	bk, err := backup(s.app(), s.backupsDir())
 	if err != nil {
 		return fmt.Errorf("backup: %w", err)
 	}
-	active, err := s.d.activeAccount()
+	active, err := s.app().activeAccount()
 	if err == nil {
 		err = change(active)
 	}
 	if err != nil {
-		if rerr := restoreBackup(s.d, bk); rerr != nil {
+		if rerr := restoreBackup(s.app(), bk); rerr != nil {
 			log.Printf("restore backup %s: %v", bk, rerr)
 		}
 	}
@@ -386,7 +389,7 @@ func (s *switcher) saveActive(active string) error {
 	if active == "" {
 		return nil
 	}
-	return saveProfile(s.d, s.profileDir(active))
+	return saveProfile(s.app(), s.profileDir(active))
 }
 
 // switchTo signs the app in as uuid, for the reason in cause.
@@ -415,10 +418,10 @@ func (s *switcher) switchTo(uuid string, cause switchCause) error {
 		if err := s.saveActive(active); err != nil {
 			return fmt.Errorf("save current sign-in: %w", err)
 		}
-		if err := restoreProfile(s.d, s.profileDir(uuid)); err != nil {
+		if err := restoreProfile(s.app(), s.profileDir(uuid)); err != nil {
 			return fmt.Errorf("restore sign-in: %w", err)
 		}
-		n, err := syncSessions(s.d.sessionsDir(), target.UUID, target.Org)
+		n, err := syncSessions(s.app().sessionsDir(), target.UUID, target.Org)
 		log.Printf("switched to %s, %d chats imported", target.label(), n)
 		s.importProjects(target)
 		return err
@@ -451,7 +454,7 @@ func (s *switcher) addAccount() error {
 		if err := s.saveActive(active); err != nil {
 			return err
 		}
-		return clearSignIn(s.d)
+		return clearSignIn(s.app())
 	})
 	if err == nil {
 		s.mu.Lock()
@@ -471,7 +474,7 @@ func (s *switcher) importChats() error {
 		if a == nil {
 			return errors.New("no signed-in account")
 		}
-		n, err := syncSessions(s.d.sessionsDir(), a.UUID, a.Org)
+		n, err := syncSessions(s.app().sessionsDir(), a.UUID, a.Org)
 		log.Printf("%d chats imported into %s", n, a.label())
 		s.importProjects(a)
 		return err
@@ -481,7 +484,7 @@ func (s *switcher) importChats() error {
 // importProjects copies the projects of all accounts into a. A failure only
 // costs the project grouping, so it is logged and the switch goes on.
 func (s *switcher) importProjects(a *Account) {
-	n, err := syncSpaces(s.d.spacesDir(), a.UUID, a.Org, filepath.Join(s.dir, "spaces-seen.json"))
+	n, err := syncSpaces(s.app().spacesDir(), a.UUID, a.Org, filepath.Join(s.dir, "spaces-seen.json"))
 	if err != nil {
 		log.Printf("projects not imported into %s: %v", a.label(), err)
 		return
