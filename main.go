@@ -23,8 +23,12 @@ const version = "0.3.2"
 const instancePort = "127.0.0.1:47823"
 
 func main() {
-	status := flag.Bool("status", false, "print accounts and usage, then exit")
+	status := flag.Bool("status", false, tr("print accounts and usage, then exit", "显示账号及用量，然后退出"))
+	lang := flag.String("lang", defaultLanguage, "interface language / 界面语言: en, zh-CN")
 	flag.Parse()
+	if err := setLanguage(*lang); err != nil {
+		log.Fatal(err)
+	}
 
 	// The home folder, because the Store app redirects AppData for everything
 	// it starts but leaves the home folder alone.
@@ -84,7 +88,7 @@ func printStatus(s *switcher) {
 	s.refresh(ctx)
 	snap := s.snapshot()
 	if len(snap.Accounts) == 0 {
-		fmt.Println("no accounts yet, sign in to Claude")
+		fmt.Println(tr("no accounts yet, sign in to Claude", "尚未添加账号，请先在 Claude 中登录"))
 	}
 	for _, a := range snap.Accounts {
 		mark := " "

@@ -144,7 +144,7 @@ func quitDesktop() error {
 		log.Printf("Claude did not close on request, ended it after %s", time.Since(began).Round(100*time.Millisecond))
 		return nil
 	}
-	return errors.New("Claude did not quit")
+	return errors.New(tr("Claude did not quit", "Claude 未能退出，请手动关闭后重试"))
 }
 
 func pidArgs(pids []uint32) []string {
@@ -191,7 +191,7 @@ func startDesktop(exe string) error {
 	if id := strings.TrimSpace(out); err == nil && id != "" {
 		return start("explorer.exe", `shell:AppsFolder\`+id)
 	}
-	return errors.New("could not find the Claude app")
+	return errors.New(tr("could not find the Claude app", "未找到 Claude 桌面应用，请确认已安装"))
 }
 
 // storeAppID derives "Claude_<publisher>!Claude" from a path like

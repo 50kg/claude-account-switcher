@@ -43,7 +43,7 @@ func loadAppKey() ([]byte, error) {
 	}
 	blob, err := base64.StdEncoding.DecodeString(state.OSCrypt.EncryptedKey)
 	if err != nil || len(blob) < 6 || string(blob[:5]) != "DPAPI" {
-		return nil, errors.New("unexpected key format in Local State")
+		return nil, errors.New(tr("unexpected key format in Local State", "Local State 中的密钥格式不受支持"))
 	}
 	blob = blob[5:]
 	in := windows.DataBlob{Size: uint32(len(blob)), Data: &blob[0]}
@@ -57,7 +57,7 @@ func loadAppKey() ([]byte, error) {
 
 func decryptValue(data []byte) ([]byte, error) {
 	if len(data) < 3+12+16 || string(data[:3]) != "v10" {
-		return nil, errors.New("unexpected encrypted value format")
+		return nil, errors.New(tr("unexpected encrypted value format", "登录凭证的加密格式不受支持"))
 	}
 	key, err := appKey()
 	if err != nil {

@@ -1,5 +1,7 @@
 <div align="center">
 
+[English](README.md) | [简体中文](README.zh-CN.md)
+
 <img src="assets/banner.svg" width="880" alt="Claude Account Switcher: switch the Claude desktop app between accounts. No email code, your chats come along.">
 
 [![Latest release](https://img.shields.io/github/v/release/SnlperStripes/claude-account-switcher)](https://github.com/SnlperStripes/claude-account-switcher/releases/latest)
@@ -43,6 +45,8 @@ Three of those four steps are pure overhead, and the fourth is a guess.
 **Switches in one click.** Right-click the tray icon, pick an account. Claude quits, the sign-in is swapped, Claude starts again. Everything else in Claude's settings stays exactly as it was.
 
 **Brings your chats along.** Before Claude starts, the switcher copies the chat list entries of your other accounts into the one you switch to. Open the chat you were in and keep going. Projects come along too, so chats stay grouped in them. Chats you deleted stay deleted.
+
+The same conversation can have different local list IDs in different accounts. Imports deduplicate by `cliSessionId`, preserve an existing target account's local ID and settings, and use filenames as a fallback for older entries without a CLI ID. Existing duplicate files are not automatically deleted.
 
 **Shows usage for all accounts at once.** 5-hour and weekly usage for every saved account, live, with when each weekly limit resets and the 5-hour reset once that limit is close. The tray icon is a ring that fills with the active account's 5-hour usage: green, orange from 75%, red at your switch threshold.
 
@@ -199,6 +203,10 @@ claude-account-switcher -status
 
 Prints every saved account with its usage and exits.
 
+This currently uses the full refresh path: with auto-switch enabled, it can also trigger a switch when its conditions are met. Do not treat it as a strictly read-only command.
+
+Use `-lang zh-CN` for Simplified Chinese or `-lang en` for English. The standard build defaults to English; a localized build can change the default without changing saved account data.
+
 ## Build
 
 Go 1.26 or newer.
@@ -210,6 +218,14 @@ CGO_ENABLED=1 go build -o claude-account-switcher .                        # mac
 ```
 
 One dependency beyond the standard library: [`fyne.io/systray`](https://github.com/fyne-io/systray) for the tray icon, plus `golang.org/x/sys` on Windows.
+
+To build a Windows executable that opens in Simplified Chinese when double-clicked:
+
+```bash
+go build -ldflags "-H=windowsgui -s -w -X main.defaultLanguage=zh-CN" -o claude-account-switcher-zh-CN.exe .
+```
+
+For an optional offline session-index regression check, set `SESSION_INDEX_SAMPLE` to a deduplicated copy of `claude-code-sessions` and run `go test ./...`. The test works on a temporary copy and does not change the supplied sample. Never commit real account data or session indexes.
 
 ## FAQ
 

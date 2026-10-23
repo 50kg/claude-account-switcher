@@ -11,7 +11,7 @@ import (
 // There is no official Claude desktop app for this platform. These stubs keep
 // the project building so the shared code can be tested here.
 
-var errUnsupported = errors.New("the Claude desktop app is not supported on this platform")
+var errUnsupported = errors.New(tr("the Claude desktop app is not supported on this platform", "当前平台不支持 Claude 桌面应用"))
 
 func claudeDesktop() desktop {
 	home, _ := os.UserHomeDir()
