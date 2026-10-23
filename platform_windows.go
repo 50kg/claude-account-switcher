@@ -218,6 +218,45 @@ func storeAppID(exe string) string {
 // shellOpen opens a folder, or a web page in the default browser.
 func shellOpen(target string) { _ = start("explorer.exe", target) }
 
+// launch starts the switcher at exe on its own.
+func launch(exe string) error { return start(exe) }
+
+// endOldSwitcher closes a switcher from before 0.3.3 that holds the instance
+// port without answering hello. It only touches a process whose file name
+// starts with claude-account-switcher, and asks it to close before ending it.
+func endOldSwitcher() bool {
+	out, err := output("netstat", "-ano", "-p", "TCP")
+	if err != nil {
+		return false
+	}
+	// The state column is translated, a listening port shows as 0.0.0.0:0 on
+	// the other end in every language.
+	var pid uint64
+	for _, line := range strings.Split(out, "\n") {
+		f := strings.Fields(line)
+		if len(f) == 5 && f[1] == instancePort && f[2] == "0.0.0.0:0" {
+			pid, _ = strconv.ParseUint(f[4], 10, 32)
+		}
+	}
+	if pid == 0 || pid == uint64(os.Getpid()) {
+		return false
+	}
+	name := strings.ToLower(filepath.Base(processPath(uint32(pid))))
+	if !strings.HasPrefix(name, "claude-account-switcher") {
+		return false
+	}
+	id := strconv.FormatUint(pid, 10)
+	run("taskkill", "/PID", id)
+	for range 15 {
+		time.Sleep(200 * time.Millisecond)
+		if processPath(uint32(pid)) == "" {
+			return true
+		}
+	}
+	run("taskkill", "/F", "/PID", id)
+	return true
+}
+
 const runKey = `Software\Microsoft\Windows\CurrentVersion\Run`
 const runValue = "ClaudeAccountSwitcher"
 

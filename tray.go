@@ -37,7 +37,7 @@ func (t *tray) onReady() {
 	t.status = systray.AddMenuItem("", "")
 	t.status.Disable()
 	t.status.Hide()
-	t.update = systray.AddMenuItem("", "Open the download page")
+	t.update = systray.AddMenuItem("", "Download the new version and restart on it")
 	t.update.Hide()
 	for i := range t.accounts {
 		t.accounts[i] = systray.AddMenuItemCheckbox("", "Switch the Claude app to this account", false)
@@ -99,7 +99,9 @@ func (t *tray) onReady() {
 				}
 				setChecked(t.autostart, autostartEnabled())
 			case <-t.update.ClickedCh:
-				shellOpen(repoURL + "/releases/latest")
+				if v := t.s.snapshot().Update; v != "" {
+					go t.s.installUpdate(context.Background(), v)
+				}
 			case <-folder.ClickedCh:
 				shellOpen(t.s.dir)
 			case <-quit.ClickedCh:
@@ -165,7 +167,7 @@ func (t *tray) render() {
 		t.status.Hide()
 	}
 	if snap.Update != "" {
-		t.update.SetTitle("Version " + snap.Update + " is out, click to download")
+		t.update.SetTitle("Version " + snap.Update + " is out, click to update")
 		t.update.Show()
 	} else {
 		t.update.Hide()

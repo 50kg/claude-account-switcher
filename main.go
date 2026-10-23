@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net"
 	"os"
 	"path/filepath"
 	"time"
@@ -18,9 +17,6 @@ import (
 )
 
 const version = "0.3.2"
-
-// Only one switcher may run; a second start exits quietly.
-const instancePort = "127.0.0.1:47823"
 
 func main() {
 	status := flag.Bool("status", false, "print accounts and usage, then exit")
@@ -47,15 +43,23 @@ func main() {
 		return
 	}
 
-	lock, err := net.Listen("tcp", instancePort)
-	if err != nil {
-		log.Print("already running")
+	lock, ok := lockInstance(instancePort)
+	if !ok {
 		return
 	}
 	defer lock.Close()
+	go removeReplaced()
 
 	log.Printf("claude-account-switcher %s, app data in %s", version, claudeDesktop().dir)
 	t := &tray{s: newSwitcher(dir), updates: make(chan struct{}, 1)}
+	// When a newer version starts, a running switch finishes first and no new
+	// one begins before this one quits.
+	go serveInstance(lock, func() {
+		for !t.s.busy.CompareAndSwap(false, true) {
+			time.Sleep(200 * time.Millisecond)
+		}
+		systray.Quit()
+	})
 	systray.Run(t.onReady, func() {})
 }
 

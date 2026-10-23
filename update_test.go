@@ -2,8 +2,13 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -71,5 +76,64 @@ func TestCheckUpdate(t *testing.T) {
 	s.checkUpdate(context.Background())
 	if !s.st.UpdateChecked.IsZero() {
 		t.Fatal("an odd tag counted as a check")
+	}
+}
+
+func TestFetchRelease(t *testing.T) {
+	bin := []byte("new switcher")
+	sum := sha256.Sum256(bin)
+	good := hex.EncodeToString(sum[:]) + "  " + releaseAsset() + "\n"
+	sha := good
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/download/v9.9.9/" + releaseAsset():
+			w.Write(bin)
+		case "/download/v9.9.9/" + releaseAsset() + ".sha256":
+			w.Write([]byte(sha))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	defer func(old string) { releasesURL = old }(releasesURL)
+	releasesURL = srv.URL
+	if releaseAsset() == "" {
+		t.Skip("no release build for this platform")
+	}
+
+	got, err := fetchRelease(context.Background(), "9.9.9")
+	if err != nil || string(got) != string(bin) {
+		t.Fatalf("fetchRelease = %q, %v", got, err)
+	}
+	sha = strings.Repeat("0", 64) + "  " + releaseAsset() + "\n"
+	if _, err := fetchRelease(context.Background(), "9.9.9"); err == nil {
+		t.Fatal("accepted a download that does not match its checksum")
+	}
+	if _, err := fetchRelease(context.Background(), "9.9.8"); err == nil {
+		t.Fatal("accepted a missing release")
+	}
+}
+
+func TestReplaceExe(t *testing.T) {
+	exe := filepath.Join(t.TempDir(), "switcher.exe")
+	if err := os.WriteFile(exe, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := replaceExe(exe, []byte("new")); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(exe); string(got) != "new" {
+		t.Fatalf("exe = %q after the update", got)
+	}
+	if got, _ := os.ReadFile(exe + ".old"); string(got) != "old" {
+		t.Fatalf("exe.old = %q", got)
+	}
+	if _, err := os.Stat(exe + ".new"); !os.IsNotExist(err) {
+		t.Fatal("the download was left next to exe")
+	}
+
+	restoreExe(exe)
+	if got, _ := os.ReadFile(exe); string(got) != "old" {
+		t.Fatalf("exe = %q after restoring", got)
 	}
 }
