@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -31,11 +32,17 @@ func syncSessions(root, account, org string) (int, error) {
 	deleted := map[string]bool{}
 	var all, sources []sessionIndex
 	targets := map[string]sessionIndex{}
+	protectedTargets := map[string]bool{}
 	byIdentity := map[string]string{}
 	for _, dir := range dirs {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
-			return 0, err
+			log.Printf("Skip session index folder %s: %v", dir, err)
+			if samePath(dir, target) {
+				// Without the target's indexes, importing could overwrite its entries.
+				return 0, nil
+			}
+			continue
 		}
 		for _, e := range entries {
 			if e.IsDir() {
@@ -48,7 +55,11 @@ func syncSessions(root, account, org string) (int, error) {
 			case strings.HasPrefix(name, "local_") && strings.HasSuffix(name, ".json"):
 				entry, err := readSessionIndex(filepath.Join(dir, name))
 				if err != nil {
-					return 0, err
+					log.Printf("Skip session index %s: %v", filepath.Join(dir, name), err)
+					if samePath(dir, target) {
+						protectedTargets[name] = true
+					}
+					continue
 				}
 				all = append(all, entry)
 				if samePath(dir, target) {
@@ -78,12 +89,17 @@ func syncSessions(root, account, org string) (int, error) {
 		if deleted[s.localID()] || deletedCLI[s.cli] {
 			continue
 		}
+		if protectedTargets[s.name] {
+			log.Printf("Skip session index %s: target index could not be read", s.path)
+			continue
+		}
 		if name, exists := byIdentity[s.identity()]; exists && name != s.name {
 			// Do not replace account-local settings with another account's alias.
 			continue
 		}
 		if dst, exists := targets[s.name]; exists && dst.cli != "" && s.cli != "" && dst.cli != s.cli {
-			return written, fmt.Errorf("local ID in %s belongs to different conversations; sync stopped", s.name)
+			log.Printf("Skip session index %s: local ID belongs to a different conversation in the target", s.path)
+			continue
 		}
 		dst := filepath.Join(target, s.name)
 		if old, exists := targets[s.name]; exists && s.activity <= old.activity {
