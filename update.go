@@ -91,6 +91,9 @@ func newerVersion(a, b string) bool {
 // checkUpdate asks GitHub for the latest release when the check is on and
 // the last answer is a day old. A failed check is tried again next time.
 func (s *switcher) checkUpdate(ctx context.Context) {
+	if manualUpdateURL != "" {
+		return
+	}
 	s.mu.Lock()
 	due := !s.st.NoUpdateCheck && time.Since(s.st.UpdateChecked) >= updateEvery
 	s.mu.Unlock()
@@ -134,6 +137,9 @@ func releaseAsset() string {
 // downloads itself carries no mark of the web, so SmartScreen and Gatekeeper
 // stay quiet. When that does not work, the download page opens instead.
 func (s *switcher) installUpdate(ctx context.Context, v string) {
+	if manualUpdateURL != "" {
+		return
+	}
 	if !updating.CompareAndSwap(false, true) {
 		return
 	}

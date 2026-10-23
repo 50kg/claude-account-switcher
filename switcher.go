@@ -552,7 +552,7 @@ func (s *switcher) snapshot() snapshot {
 	defer s.mu.Unlock()
 	snap := snapshot{Active: s.active, AutoSwitch: s.st.AutoSwitch, SpendWeekly: s.st.SpendWeekly, Threshold: s.st.Threshold,
 		Status: s.status, Note: s.autoNote(time.Now()), Busy: s.busy.Load()}
-	if !s.st.NoUpdateCheck && newerVersion(s.st.LatestVersion, version) {
+	if manualUpdateURL == "" && !s.st.NoUpdateCheck && newerVersion(s.st.LatestVersion, version) {
 		snap.Update = s.st.LatestVersion
 	}
 	for _, a := range s.st.Accounts {

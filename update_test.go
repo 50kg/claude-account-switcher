@@ -35,6 +35,7 @@ func TestNewerVersion(t *testing.T) {
 }
 
 func TestCheckUpdate(t *testing.T) {
+	useManualUpdates(t, "")
 	tag, calls := "v99.0.0", 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++

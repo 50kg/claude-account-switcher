@@ -1,3 +1,5 @@
+**Chinese maintenance fork:** Download the default-Chinese Windows executable from [50kg's releases](https://github.com/50kg/claude-account-switcher/releases/latest). Its update menu opens this fork's download page for manual updates; it does not install upstream binaries or check upstream releases in the background. Quit the previous switcher before opening the replacement. The automatic updater and winget instructions below describe standard upstream builds.
+
 <div align="center">
 
 [English](README.md) | [简体中文](README.zh-CN.md)
@@ -220,7 +222,7 @@ One dependency beyond the standard library: [`fyne.io/systray`](https://github.c
 To build a Windows executable that opens in Simplified Chinese when double-clicked:
 
 ```bash
-go build -ldflags "-H=windowsgui -s -w -X main.defaultLanguage=zh-CN" -o claude-account-switcher-zh-CN.exe .
+go build -ldflags "-H=windowsgui -s -w -X main.defaultLanguage=zh-CN -X main.manualUpdateURL=https://github.com/50kg/claude-account-switcher/releases/latest" -o claude-account-switcher-zh-CN.exe .
 ```
 
 For an optional offline session-index regression check, set `SESSION_INDEX_SAMPLE` to a deduplicated copy of `claude-code-sessions` and run `go test ./...`. The test works on a temporary copy and does not change the supplied sample. Never commit real account data or session indexes.

@@ -37,7 +37,8 @@ func (t *tray) onReady() {
 	t.status = systray.AddMenuItem("", "")
 	t.status.Disable()
 	t.status.Hide()
-	t.update = systray.AddMenuItem("", tr("Download the new version and restart on it", "下载新版本并重启切换器"))
+	_, updateTip := updateMenuText("")
+	t.update = systray.AddMenuItem("", updateTip)
 	t.update.Hide()
 	for i := range t.accounts {
 		t.accounts[i] = systray.AddMenuItemCheckbox("", tr("Switch the Claude app to this account", "将 Claude 切换到此账号"), false)
@@ -99,9 +100,7 @@ func (t *tray) onReady() {
 				}
 				setChecked(t.autostart, autostartEnabled())
 			case <-t.update.ClickedCh:
-				if v := t.s.snapshot().Update; v != "" {
-					go t.s.installUpdate(context.Background(), v)
-				}
+				go t.s.requestUpdate(context.Background(), shellOpen)
 			case <-folder.ClickedCh:
 				shellOpen(t.s.dir)
 			case <-quit.ClickedCh:
@@ -145,6 +144,9 @@ func (t *tray) loop() {
 // updateLoop looks for a new release a minute after start, then every hour;
 // checkUpdate decides whether a day has passed since the last answer.
 func (t *tray) updateLoop() {
+	if manualUpdateURL != "" {
+		return
+	}
 	time.Sleep(time.Minute)
 	for {
 		t.s.checkUpdate(context.Background())
@@ -166,8 +168,8 @@ func (t *tray) render() {
 	default:
 		t.status.Hide()
 	}
-	if snap.Update != "" {
-		t.update.SetTitle(fmt.Sprintf(tr("Version %s is out, click to update", "发现新版本 %s，点击更新"), snap.Update))
+	if title, _ := updateMenuText(snap.Update); title != "" {
+		t.update.SetTitle(title)
 		t.update.Show()
 	} else {
 		t.update.Hide()

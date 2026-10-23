@@ -1,3 +1,5 @@
+**中文版维护分支：** 请到 [50kg 的中文版发布页](https://github.com/50kg/claude-account-switcher/releases/latest)下载默认中文的 Windows 程序。发布包中的“下载中文版更新…”菜单会打开本 Fork 的下载页，供手动更新；不会自动安装上游英文程序，也不会在后台查询上游版本。更新前请先退出旧版切换器，再双击新版。下文自动更新和 winget 说明适用于标准上游构建。
+
 <div align="center">
 
 [English](README.md) | [简体中文](README.zh-CN.md)
@@ -226,10 +228,10 @@ go build -ldflags "-H=windowsgui -s -w" -o claude-account-switcher.exe .   # Win
 CGO_ENABLED=1 go build -o claude-account-switcher .                        # macOS
 ```
 
-生成双击后默认使用简体中文的 Windows 程序：
+生成双击后默认使用简体中文、通过本 Fork 发布页手动更新的 Windows 程序：
 
 ```powershell
-go build -ldflags "-H=windowsgui -s -w -X main.defaultLanguage=zh-CN" -o claude-account-switcher-zh-CN.exe .
+go build -ldflags "-H=windowsgui -s -w -X main.defaultLanguage=zh-CN -X main.manualUpdateURL=https://github.com/50kg/claude-account-switcher/releases/latest" -o claude-account-switcher-zh-CN.exe .
 ```
 
 标准库之外，主要依赖 [`fyne.io/systray`](https://github.com/fyne-io/systray) 提供系统托盘能力，Windows 还使用 `golang.org/x/sys`。
