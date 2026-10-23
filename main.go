@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net"
 	"os"
 	"path/filepath"
 	"time"
@@ -17,10 +16,7 @@ import (
 	"fyne.io/systray"
 )
 
-const version = "0.3.2"
-
-// Only one switcher may run; a second start exits quietly.
-const instancePort = "127.0.0.1:47823"
+const version = "0.3.3"
 
 func main() {
 	status := flag.Bool("status", false, tr("print accounts and usage, then exit", "显示账号及用量，然后退出"))
@@ -51,15 +47,23 @@ func main() {
 		return
 	}
 
-	lock, err := net.Listen("tcp", instancePort)
-	if err != nil {
-		log.Print("already running")
+	lock, ok := lockInstance(instancePort)
+	if !ok {
 		return
 	}
 	defer lock.Close()
+	go removeReplaced()
 
 	log.Printf("claude-account-switcher %s, app data in %s", version, claudeDesktop().dir)
 	t := &tray{s: newSwitcher(dir), updates: make(chan struct{}, 1)}
+	// When a newer version starts, a running switch finishes first and no new
+	// one begins before this one quits.
+	go serveInstance(lock, func() {
+		for !t.s.busy.CompareAndSwap(false, true) {
+			time.Sleep(200 * time.Millisecond)
+		}
+		systray.Quit()
+	})
 	systray.Run(t.onReady, func() {})
 }
 
@@ -81,11 +85,12 @@ func setupLog(path string, console bool) {
 	}
 }
 
-// printStatus refreshes once and prints what the menu would show.
+// printStatus checks once and prints what the menu would show. It only reports:
+// a switch that is due is left to the tray.
 func printStatus(s *switcher) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	s.refresh(ctx)
+	s.check(ctx)
 	snap := s.snapshot()
 	if len(snap.Accounts) == 0 {
 		fmt.Println(tr("no accounts yet, sign in to Claude", "尚未添加账号，请先在 Claude 中登录"))

@@ -57,12 +57,50 @@ func TestUsageTextBothLanguages(t *testing.T) {
 			if got := usageText(a, 96, now); got != tc.want {
 				t.Fatalf("got %q, want %q", got, tc.want)
 			}
-			for _, stored := range []string{signedOutMessage, "登录已失效，请重新添加账号"} {
-				a := Account{Problem: stored}
-				if got, want := usageText(a, 96, now), tr(signedOutMessage, "登录已失效，请重新添加账号"); got != want {
-					t.Fatalf("persisted problem = %q, want %q", got, want)
-				}
+			a := Account{Problem: signedOutMessage}
+			if got, want := usageText(a, 96, now), tr(signedOutMessage, "登录已失效，请重新添加账号"); got != want {
+				t.Fatalf("persisted problem = %q, want %q", got, want)
 			}
 		})
+	}
+}
+
+func TestUsageTextShowsWeeklyResetChinese(t *testing.T) {
+	useLanguage(t, "zh-CN")
+	now := time.Date(2026, 10, 6, 12, 0, 0, 0, time.Local)
+	a := Account{Usage: &Usage{Session: 20, Weekly: 40, WeeklyReset: now.Add(2 * 24 * time.Hour)}}
+	if got, want := usageText(a, 96, now), "5小时 20% · 每周 40%，重置于 周四 12:00"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	a.Usage.Weekly = 97
+	if got, want := usageText(a, 96, now), "5小时 20% · 每周 97%，重置于 周四 12:00"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	a.Usage.Weekly, a.Usage.WeeklyReset = 0, now.Add(6*24*time.Hour+time.Hour)
+	if got, want := usageText(a, 96, now), "5小时 20% · 每周 0%，重置于 10月12日 周一 13:00"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestAutoNoteChinese(t *testing.T) {
+	useLanguage(t, "zh-CN")
+	now := time.Date(2026, 10, 7, 9, 0, 0, 0, time.Local)
+	s := &switcher{}
+	s.st.Accounts = []*Account{{UUID: "a", Name: "Pepe", Plan: "Pro"}}
+	s.st.LastSwitch = now.Add(-6 * time.Hour)
+	if got := s.autoNote(now); got != "" {
+		t.Fatalf("note after a switch by hand: %q", got)
+	}
+	s.st.LastCause, s.st.LastFrom = nearlyFull, "a"
+	if got, want := s.autoNote(now), "已于 03:00 自动切换，Pepe (Pro) 的额度接近用尽"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	s.st.LastCause, s.st.SpendUntil = spendWeekly, now.Add(9*time.Hour)
+	if got, want := s.autoNote(now), "已于 03:00 自动切换，以使用此账号将在 18:00 重置的周额度"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	s.st.LastSwitch = now.Add(-noteFor - time.Minute)
+	if got := s.autoNote(now); got != "" {
+		t.Fatalf("note still shown after %s: %q", noteFor, got)
 	}
 }

@@ -37,7 +37,7 @@ func (t *tray) onReady() {
 	t.status = systray.AddMenuItem("", "")
 	t.status.Disable()
 	t.status.Hide()
-	t.update = systray.AddMenuItem("", tr("Open the download page", "打开下载页面"))
+	t.update = systray.AddMenuItem("", tr("Download the new version and restart on it", "下载新版本并重启切换器"))
 	t.update.Hide()
 	for i := range t.accounts {
 		t.accounts[i] = systray.AddMenuItemCheckbox("", tr("Switch the Claude app to this account", "将 Claude 切换到此账号"), false)
@@ -99,7 +99,9 @@ func (t *tray) onReady() {
 				}
 				setChecked(t.autostart, autostartEnabled())
 			case <-t.update.ClickedCh:
-				shellOpen(repoURL + "/releases/latest")
+				if v := t.s.snapshot().Update; v != "" {
+					go t.s.installUpdate(context.Background(), v)
+				}
 			case <-folder.ClickedCh:
 				shellOpen(t.s.dir)
 			case <-quit.ClickedCh:
@@ -165,7 +167,7 @@ func (t *tray) render() {
 		t.status.Hide()
 	}
 	if snap.Update != "" {
-		t.update.SetTitle(fmt.Sprintf(tr("Version %s is out, click to download", "发现新版本 %s，点击下载"), snap.Update))
+		t.update.SetTitle(fmt.Sprintf(tr("Version %s is out, click to update", "发现新版本 %s，点击更新"), snap.Update))
 		t.update.Show()
 	} else {
 		t.update.Hide()
@@ -222,8 +224,7 @@ var menuTab = map[bool]string{true: "\t", false: "    "}[runtime.GOOS == "window
 
 func usageText(a Account, threshold float64, now time.Time) string {
 	if a.Problem != "" {
-		// Accept state saved by both the original and the earlier localized build.
-		if a.Problem == signedOutMessage || a.Problem == "登录已失效，请重新添加账号" {
+		if a.Problem == signedOutMessage {
 			return tr(signedOutMessage, "登录已失效，请重新添加账号")
 		}
 		return a.Problem
