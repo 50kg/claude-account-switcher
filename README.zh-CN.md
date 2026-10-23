@@ -189,7 +189,7 @@ Claude 的数据目录因系统和安装方式而异：
 
 **用量查询。** 程序使用 Claude 自己的密钥，在内存中解密已保存的 Token 缓存：Windows 使用 DPAPI，macOS 使用钥匙串。随后请求账号信息和用量接口。当前账号通常每两分钟查询一次，接近上限、达到 85% 后每分钟查询一次；其他账号每十分钟查询一次。接口按账号限流，而 Claude 本身也会轮询，收到 `429` 后会按服务器要求等待，或逐步退避，最长 30 分钟。等待期间保留最近查询结果。凭证的实际有效期由服务端决定；本程序不会主动续期，失效后需重新添加账号。
 
-**版本检查。** 程序每天向 GitHub 查询一次最新发布版本，不附带账号信息。发现新版本后，在菜单顶部提示，点击即可打开下载页面。使用 winget 安装时可运行 `winget upgrade SnlperStripes.ClaudeAccountSwitcher`。若要关闭 GitHub 查询，请退出切换器，在 `state.json` 中加入 `"noUpdateCheck": true`，再启动程序。
+**版本检查。** 程序每天向 GitHub 查询一次最新发布版本，不附带账号信息。发现新版本后，在菜单顶部提示；点击会下载文件、核对发布的 SHA-256 校验值、替换当前程序并重新启动。下载或安装失败时会打开下载页面。手动启动更新版本也可以：新版本会等待旧切换器完成正在进行的切换后接管。使用 winget 安装时可运行 `winget upgrade SnlperStripes.ClaudeAccountSwitcher`。若要关闭 GitHub 查询，请退出切换器，在 `state.json` 中加入 `"noUpdateCheck": true`，再启动程序。
 
 **Store 版的路径重定向。** 从 Store 版 Claude 内启动的程序，例如 Claude Code 终端，会看到重定向后的 AppData 目录。切换器会检测这种情况，必要时通过 Explorer 再次启动自身，以访问真实文件，并避免随 Claude 退出。
 
@@ -201,7 +201,7 @@ Claude 的数据目录因系统和安装方式而异：
 | --- | --- |
 | 已保存的登录、状态、备份和日志 | 位于 `~/.claude-account-switcher`；Windows 为 `%USERPROFILE%\.claude-account-switcher`，可通过“打开数据文件夹”进入 |
 | Token | 按 Claude 原有加密形式保存，不写成明文，只向 `api.anthropic.com` 发送 |
-| 网络访问 | `api.anthropic.com` 用于账号信息和用量；`api.github.com` 用于每日版本查询，后者可关闭 |
+| 网络访问 | `api.anthropic.com` 用于账号信息和用量；`api.github.com` 用于每日版本查询，后者可关闭；点击更新时还会访问 `github.com` |
 | 移除账号 | 退出切换器，删除 `accounts/` 下相应账号目录，以及 `state.json` 中的相应条目 |
 | 卸载 | 关闭“开机启动”，退出程序，删除可执行文件和数据目录 |
 
@@ -211,7 +211,7 @@ Claude 的数据目录因系统和安装方式而异：
 claude-account-switcher -status
 ```
 
-查询并打印已保存账号的用量，然后退出。该命令当前复用完整刷新流程：若已开启自动切换且满足条件，也可能触发切换，不应将其视为纯只读命令。
+查询并打印已保存账号的用量，然后退出。
 
 `-lang zh-CN` 选择简体中文，`-lang en` 选择英文。
 
@@ -252,7 +252,7 @@ go build -ldflags "-H=windowsgui -s -w -X main.defaultLanguage=zh-CN" -o claude-
 
 **如何同时查看所有账号的用量？**
 
-托盘菜单会显示各账号最近查询到的 5 小时和每周用量，以及重置时间。也可使用 `claude-account-switcher -status`；该命令的自动切换行为见“命令行”部分。
+托盘菜单会显示各账号最近查询到的 5 小时和每周用量，以及重置时间。也可使用 `claude-account-switcher -status` 在终端查看。
 
 **达到 Claude 用量限制后怎么办？**
 
@@ -276,7 +276,7 @@ Token 按 Claude 原有加密形式存储，查询时只发送到 `api.anthropic
 
 **如何更新？**
 
-发现新版本后，点击菜单中的提示打开下载页面，替换程序文件即可。winget 用户可运行 `winget upgrade SnlperStripes.ClaudeAccountSwitcher`。账号和设置保存在独立数据目录中。
+发现新版本后，点击菜单中的提示即可下载、校验并重启为新版本；失败时会打开下载页面供手动更新。也可直接运行下载的新版本，由它接管正在运行的旧切换器。winget 用户可运行 `winget upgrade SnlperStripes.ClaudeAccountSwitcher`。账号和设置保存在独立数据目录中。
 
 ## 使用限制
 

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 	"time"
 )
 
@@ -58,6 +59,22 @@ func startDesktop(string) error {
 
 // shellOpen opens a folder, or a web page in the default browser.
 func shellOpen(target string) { _ = exec.Command("open", target).Start() }
+
+// launch starts the switcher at exe in its own session, so it keeps running
+// after this process quits.
+func launch(exe string) error {
+	cmd := exec.Command(exe)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	go cmd.Wait()
+	return nil
+}
+
+// endOldSwitcher would close a switcher from before 0.3.3. Those were never
+// tested on a Mac, so quitting one stays a step by hand.
+func endOldSwitcher() bool { return false }
 
 func launchAgentPath() string {
 	home, _ := os.UserHomeDir()
