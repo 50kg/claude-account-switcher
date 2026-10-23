@@ -81,11 +81,12 @@ func setupLog(path string, console bool) {
 	}
 }
 
-// printStatus refreshes once and prints what the menu would show.
+// printStatus checks once and prints what the menu would show. It only reports:
+// a switch that is due is left to the tray.
 func printStatus(s *switcher) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	s.refresh(ctx)
+	s.check(ctx)
 	snap := s.snapshot()
 	if len(snap.Accounts) == 0 {
 		fmt.Println("no accounts yet, sign in to Claude")
