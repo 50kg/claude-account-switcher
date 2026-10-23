@@ -57,14 +57,37 @@ func TestSyncSessionsDoesNotRestoreDeletedAlias(t *testing.T) {
 	}
 }
 
-func TestSyncSessionsRejectsMalformedIndex(t *testing.T) {
-	for _, data := range []string{"{broken", "null", "[]"} {
+func TestSyncSessionsSkipsStrayFile(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "a", ".DS_Store"), "Finder metadata")
+	source := filepath.Join(root, "a", "oa", "local_valid.json")
+	write(t, source, `{"cliSessionId":"valid","lastActivityAt":100}`)
+	for i := range 2 {
+		n, err := syncSessions(root, "b", "ob")
+		if err != nil || (i == 0 && n != 1) || (i == 1 && n != 0) {
+			t.Fatalf("sync %d with a stray file = %d, %v", i, n, err)
+		}
+	}
+	if got := read(t, filepath.Join(root, "b", "ob", "local_valid.json")); got != read(t, source) {
+		t.Fatal("stray file prevented a valid conversation from being imported")
+	}
+}
+
+func TestSyncSessionsSkipsMalformedSourceIndex(t *testing.T) {
+	for _, data := range []string{"", "{broken", "null", "[]"} {
 		t.Run(data, func(t *testing.T) {
 			root := t.TempDir()
 			path := filepath.Join(root, "a", "oa", "local_broken.json")
 			write(t, path, data)
-			if _, err := syncSessions(root, "b", "ob"); err == nil {
-				t.Fatal("malformed source was accepted")
+			write(t, filepath.Join(root, "a", "oa", "local_valid.json"), `{"cliSessionId":"valid","lastActivityAt":100}`)
+			for i := range 2 {
+				n, err := syncSessions(root, "b", "ob")
+				if err != nil || (i == 0 && n != 1) || (i == 1 && n != 0) {
+					t.Fatalf("sync %d with a malformed source = %d, %v", i, n, err)
+				}
+			}
+			if _, err := os.Stat(filepath.Join(root, "b", "ob", "local_broken.json")); !os.IsNotExist(err) {
+				t.Fatal("malformed source was copied")
 			}
 			if read(t, path) != data {
 				t.Fatal("malformed source was modified")
@@ -73,17 +96,56 @@ func TestSyncSessionsRejectsMalformedIndex(t *testing.T) {
 	}
 }
 
-func TestSyncSessionsRejectsLocalIDCollision(t *testing.T) {
+func TestSyncSessionsPreservesMalformedTargetIndex(t *testing.T) {
+	for _, data := range []string{"", "{broken", "null", "[]"} {
+		t.Run(data, func(t *testing.T) {
+			root := t.TempDir()
+			write(t, filepath.Join(root, "a", "oa", "local_broken.json"), `{"cliSessionId":"same-name","lastActivityAt":200}`)
+			write(t, filepath.Join(root, "a", "oa", "local_valid.json"), `{"cliSessionId":"valid","lastActivityAt":100}`)
+			target := filepath.Join(root, "b", "ob", "local_broken.json")
+			write(t, target, data)
+			for i := range 2 {
+				n, err := syncSessions(root, "b", "ob")
+				if err != nil || (i == 0 && n != 1) || (i == 1 && n != 0) {
+					t.Fatalf("sync %d with a malformed target = %d, %v", i, n, err)
+				}
+				if read(t, target) != data {
+					t.Fatal("a source overwrote the malformed target index")
+				}
+			}
+		})
+	}
+}
+
+func TestSyncSessionsSkipsLocalIDCollision(t *testing.T) {
 	root := t.TempDir()
 	write(t, filepath.Join(root, "a", "oa", "local_same.json"), `{"cliSessionId":"first","lastActivityAt":200}`)
+	write(t, filepath.Join(root, "a", "oa", "local_other.json"), `{"cliSessionId":"other","lastActivityAt":300}`)
 	target := filepath.Join(root, "b", "ob", "local_same.json")
 	want := `{"cliSessionId":"second","lastActivityAt":100}`
 	write(t, target, want)
-	if _, err := syncSessions(root, "b", "ob"); err == nil {
-		t.Fatal("different conversations sharing a local ID were merged")
+	for i := range 2 {
+		n, err := syncSessions(root, "b", "ob")
+		if err != nil || (i == 0 && n != 1) || (i == 1 && n != 0) {
+			t.Fatalf("sync %d with a local ID collision = %d, %v", i, n, err)
+		}
 	}
 	if read(t, target) != want {
 		t.Fatal("local ID collision overwrote another conversation")
+	}
+}
+
+func TestSyncSessionsReportsWriteFailure(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "a", "oa", "local_valid.json"), `{"cliSessionId":"valid","lastActivityAt":100}`)
+	if err := os.MkdirAll(filepath.Join(root, "b", "ob", "local_valid.json.switcher-tmp"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := syncSessions(root, "b", "ob"); err == nil || n != 0 {
+		t.Fatalf("sync with a blocked destination = %d, %v; want a write error", n, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "b", "ob", "local_valid.json")); !os.IsNotExist(err) {
+		t.Fatal("failed write created a target index")
 	}
 }
 
