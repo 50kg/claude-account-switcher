@@ -31,14 +31,14 @@ func appKey() ([]byte, error) {
 func loadAppKey() ([]byte, error) {
 	out, err := exec.Command("security", "find-generic-password", "-w", "-s", "Claude Safe Storage").Output()
 	if err != nil {
-		return nil, errors.New("could not read \"Claude Safe Storage\" from the keychain")
+		return nil, errors.New(tr("could not read \"Claude Safe Storage\" from the keychain", "无法从钥匙串读取“Claude Safe Storage”"))
 	}
 	return pbkdf2.Key(sha1.New, strings.TrimSpace(string(out)), []byte("saltysalt"), 1003, 16)
 }
 
 func decryptValue(data []byte) ([]byte, error) {
 	if len(data) < 3+aes.BlockSize || string(data[:3]) != "v10" {
-		return nil, errors.New("unexpected encrypted value format")
+		return nil, errors.New(tr("unexpected encrypted value format", "登录凭证的加密格式不受支持"))
 	}
 	key, err := appKey()
 	if err != nil {
@@ -50,13 +50,13 @@ func decryptValue(data []byte) ([]byte, error) {
 	}
 	ct := data[3:]
 	if len(ct)%aes.BlockSize != 0 {
-		return nil, errors.New("bad ciphertext length")
+		return nil, errors.New(tr("bad ciphertext length", "加密数据长度无效"))
 	}
 	plain := make([]byte, len(ct))
 	cipher.NewCBCDecrypter(block, bytes.Repeat([]byte{' '}, aes.BlockSize)).CryptBlocks(plain, ct)
 	pad := int(plain[len(plain)-1])
 	if pad < 1 || pad > aes.BlockSize || pad > len(plain) {
-		return nil, errors.New("bad padding")
+		return nil, errors.New(tr("bad padding", "加密数据填充无效"))
 	}
 	return plain[:len(plain)-pad], nil
 }

@@ -90,7 +90,7 @@ func apiGet(ctx context.Context, token, path string, out any) error {
 		wait, _ := strconv.Atoi(res.Header.Get("Retry-After"))
 		return &rateLimited{after: time.Duration(wait) * time.Second}
 	}
-	return fmt.Errorf("%s: %s", path, res.Status)
+	return fmt.Errorf(tr("%s: HTTP %d", "请求 %s 失败（HTTP %d）"), path, res.StatusCode)
 }
 
 var errSignedOut = errors.New("sign-in expired")
@@ -98,7 +98,9 @@ var errSignedOut = errors.New("sign-in expired")
 // rateLimited is a 429. after is the server's Retry-After, zero when it gave none.
 type rateLimited struct{ after time.Duration }
 
-func (e *rateLimited) Error() string { return "rate limited" }
+func (e *rateLimited) Error() string {
+	return tr("rate limited", "请求过于频繁，请稍后重试")
+}
 
 func fetchProfile(ctx context.Context, token string) (profile, error) {
 	var p profile

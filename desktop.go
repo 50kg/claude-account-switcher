@@ -60,7 +60,7 @@ func tokenCacheOf(configPath string) (string, error) {
 	}
 	raw, ok := cfg.get("oauth:tokenCacheV2")
 	if !ok {
-		return "", errors.New("no saved sign-in")
+		return "", errors.New(tr("no saved sign-in", "没有已保存的登录状态"))
 	}
 	var s string
 	if err := json.Unmarshal(raw, &s); err != nil {
@@ -83,7 +83,7 @@ func readObject(path string) (*object, error) {
 	}
 	dec := json.NewDecoder(bytes.NewReader(data))
 	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
-		return nil, fmt.Errorf("%s: not a JSON object", path)
+		return nil, fmt.Errorf(tr("%s: not a JSON object", "%s：配置内容不是有效的 JSON 对象"), path)
 	}
 	o := &object{vals: map[string]json.RawMessage{}}
 	for dec.More() {

@@ -39,7 +39,7 @@ func quitDesktop() error {
 	if waitGone(10 * time.Second) {
 		return nil
 	}
-	return errors.New("Claude did not quit")
+	return errors.New(tr("Claude did not quit", "Claude 未能退出，请手动关闭后重试"))
 }
 
 func waitGone(timeout time.Duration) bool {
