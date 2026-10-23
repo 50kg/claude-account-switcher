@@ -174,8 +174,16 @@ func (s *switcher) tokenFor(uuid, active string) (string, error) {
 
 // refresh notices sign-ins, keeps usage current and runs the auto switch.
 func (s *switcher) refresh(ctx context.Context) {
+	if what, do := s.check(ctx); do != nil {
+		s.run(what, do)
+	}
+}
+
+// check fetches the usage that is due and saves it. It never restarts Claude,
+// so -status can use it; the switch or import it finds due is returned instead.
+func (s *switcher) check(ctx context.Context) (string, func() error) {
 	if s.busy.Load() {
-		return
+		return "", nil
 	}
 	active, err := s.app().activeAccount()
 	if err != nil {
@@ -275,10 +283,11 @@ func (s *switcher) refresh(ctx context.Context) {
 	switch {
 	case added && adding:
 		// A fresh sign-in: restart once so the chats of the other accounts show up.
-		s.run("Importing chats", func() error { return s.importChats() })
+		return "Importing chats", s.importChats
 	case target != nil:
-		s.run("Auto switch", func() error { return s.switchTo(target.UUID, cause) })
+		return "Auto switch", func() error { return s.switchTo(target.UUID, cause) }
 	}
+	return "", nil
 }
 
 // autoTarget picks the account to switch to and says why: the active one is

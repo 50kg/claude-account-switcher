@@ -2,12 +2,20 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -102,4 +110,155 @@ func (s *switcher) checkUpdate(ctx context.Context) {
 	s.saveState()
 	s.mu.Unlock()
 	s.onChange()
+}
+
+var (
+	releasesURL = repoURL + "/releases"
+	downloader  = &http.Client{Timeout: 5 * time.Minute}
+	updating    atomic.Bool
+)
+
+// releaseAsset is the name of this platform's file in a release.
+func releaseAsset() string {
+	switch runtime.GOOS {
+	case "windows":
+		return "claude-account-switcher-windows-amd64.exe"
+	case "darwin":
+		return "claude-account-switcher-macos"
+	}
+	return ""
+}
+
+// installUpdate puts version v in place of the running file and starts it,
+// and the new process then asks this one to quit. A file the switcher
+// downloads itself carries no mark of the web, so SmartScreen and Gatekeeper
+// stay quiet. When that does not work, the download page opens instead.
+func (s *switcher) installUpdate(ctx context.Context, v string) {
+	if !updating.CompareAndSwap(false, true) {
+		return
+	}
+	defer updating.Store(false)
+	s.setStatus("Downloading version " + v + "…")
+	err := func() error {
+		exe, err := os.Executable()
+		if err != nil {
+			return err
+		}
+		if exe, err = filepath.EvalSymlinks(exe); err != nil {
+			return err
+		}
+		bin, err := fetchRelease(ctx, v)
+		if err != nil {
+			return err
+		}
+		if err := replaceExe(exe, bin); err != nil {
+			return err
+		}
+		if err := launch(exe); err != nil {
+			restoreExe(exe)
+			return err
+		}
+		return nil
+	}()
+	if err != nil {
+		s.setStatus("Update failed: " + err.Error())
+		shellOpen(releasesURL + "/latest")
+		return
+	}
+	s.setStatus("Starting version " + v + "…")
+}
+
+// fetchRelease downloads this platform's file of version v and checks it
+// against the checksum published next to it.
+func fetchRelease(ctx context.Context, v string) ([]byte, error) {
+	asset := releaseAsset()
+	if asset == "" {
+		return nil, errors.New("no release build for this platform")
+	}
+	url := releasesURL + "/download/v" + v + "/" + asset
+	bin, err := download(ctx, url, 64<<20)
+	if err != nil {
+		return nil, err
+	}
+	sum, err := download(ctx, url+".sha256", 1<<10)
+	if err != nil {
+		return nil, err
+	}
+	want, _, _ := strings.Cut(strings.TrimSpace(string(sum)), " ")
+	got := sha256.Sum256(bin)
+	if !strings.EqualFold(want, hex.EncodeToString(got[:])) {
+		return nil, errors.New("the download does not match its checksum")
+	}
+	return bin, nil
+}
+
+func download(ctx context.Context, url string, limit int64) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "claude-account-switcher/"+version)
+	res, err := downloader.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("download: %s", res.Status)
+	}
+	data, err := io.ReadAll(io.LimitReader(res.Body, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > limit {
+		return nil, errors.New("download: file too large")
+	}
+	return data, nil
+}
+
+// replaceExe writes bin in place of exe and keeps the old file as exe.old.
+// Windows cannot overwrite a running program, but it can rename it.
+func replaceExe(exe string, bin []byte) error {
+	tmp := exe + ".new"
+	if err := os.WriteFile(tmp, bin, 0o755); err != nil {
+		return err
+	}
+	_ = os.Remove(exe + ".old")
+	if err := os.Rename(exe, exe+".old"); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	if err := os.Rename(tmp, exe); err != nil {
+		restoreExe(exe)
+		os.Remove(tmp)
+		return err
+	}
+	return nil
+}
+
+// restoreExe puts exe.old back when the new file cannot be started.
+func restoreExe(exe string) {
+	_ = os.Remove(exe)
+	if err := os.Rename(exe+".old", exe); err != nil {
+		log.Printf("restore %s: %v", exe, err)
+	}
+}
+
+// removeReplaced deletes the file an update left behind once the old process,
+// which still runs from it for a moment, has quit.
+func removeReplaced() {
+	exe, err := os.Executable()
+	if err != nil {
+		return
+	}
+	if exe, err = filepath.EvalSymlinks(exe); err != nil {
+		return
+	}
+	old := exe + ".old"
+	for range 20 {
+		if err := os.Remove(old); err == nil || errors.Is(err, os.ErrNotExist) {
+			return
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
 }
