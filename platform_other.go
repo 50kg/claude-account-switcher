@@ -29,4 +29,4 @@ func decryptValue([]byte) ([]byte, error)  { return nil, errUnsupported }
 
 func relaunchOutsideDesktop(string) bool { return false }
 func launch(string) error                { return errUnsupported }
-func endOldSwitcher() bool               { return false }
+func askToQuitOld()                      {}

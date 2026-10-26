@@ -29,12 +29,11 @@ func lockInstance(addr string) (net.Listener, bool) {
 		log.Print("already running")
 		return nil, false
 	default:
-		// Versions before 0.3.3 hold the port without answering.
-		if !endOldSwitcher() {
-			log.Print("already running")
-			return nil, false
-		}
-		log.Print("ended a switcher from before 0.3.3")
+		// Versions before 0.3.3 hold the port without answering. Ending another
+		// process looks like malware to Windows Defender, so the user quits it.
+		log.Print("a switcher from before 0.3.3 is running")
+		askToQuitOld()
+		return nil, false
 	}
 	// The old switcher finishes a running switch before it quits.
 	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(200 * time.Millisecond) {

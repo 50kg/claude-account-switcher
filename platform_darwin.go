@@ -72,9 +72,9 @@ func launch(exe string) error {
 	return nil
 }
 
-// endOldSwitcher would close a switcher from before 0.3.3. Those were never
-// tested on a Mac, so quitting one stays a step by hand.
-func endOldSwitcher() bool { return false }
+// askToQuitOld would tell the user to quit a switcher from before 0.3.3.
+// Those were never tested on a Mac, so only the log says it.
+func askToQuitOld() {}
 
 func launchAgentPath() string {
 	home, _ := os.UserHomeDir()

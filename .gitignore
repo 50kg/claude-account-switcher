@@ -1,3 +1,4 @@
 *.exe
 /claude-account-switcher
 /dist/
+*.syso
