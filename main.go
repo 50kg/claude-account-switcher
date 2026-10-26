@@ -16,7 +16,7 @@ import (
 	"fyne.io/systray"
 )
 
-const version = "0.3.3"
+const version = "0.3.4"
 
 func main() {
 	status := flag.Bool("status", false, "print accounts and usage, then exit")
