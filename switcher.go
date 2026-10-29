@@ -84,6 +84,8 @@ const (
 	idleFor = 15 * time.Minute
 	// The menu says why the last auto switch happened for this long.
 	noteFor = 12 * time.Hour
+	// Claude stays closed this long while it asks which stopped chats go on.
+	resumeWait = 30 * time.Second
 
 	// The usage endpoint rate-limits per account, and Claude polls it too.
 	// The active account is checked more often once it gets close.
@@ -366,6 +368,8 @@ func (s *switcher) run(what string, f func() error) {
 // restart closes the app, runs change on its files and starts it again. If
 // change fails, the app files are put back as they were.
 func (s *switcher) restart(change func(active string) error) error {
+	quitAt := time.Now()
+	running := runningChats(projectsDir(), quitAt)
 	if err := quitDesktop(); err != nil {
 		return err
 	}
@@ -390,7 +394,37 @@ func (s *switcher) restart(change func(active string) error) error {
 			log.Printf("restore backup %s: %v", bk, rerr)
 		}
 	}
+	s.askResume(quitAt, running)
 	return err
+}
+
+// askResume lets the user pick which of the chats the quit stopped mid-turn
+// the app continues on its start. Nobody answering means all of them, the
+// same as a restart without the switcher.
+func (s *switcher) askResume(quitAt time.Time, running map[string]bool) {
+	uuid, err := s.app().activeAccount()
+	s.mu.Lock()
+	a := s.account(uuid)
+	s.mu.Unlock()
+	if err != nil || a == nil {
+		return
+	}
+	cut := takeCutChats(s.app().sessionsDir(), a.UUID, a.Org, quitAt, running)
+	if len(cut) == 0 {
+		return
+	}
+	keep := chooseResume(a.label(), cut, resumeWait)
+	n := 0
+	for i, c := range cut {
+		if keep[i] {
+			n++
+			continue
+		}
+		if err := clearCutMark(c.path); err != nil {
+			log.Printf("clear quit mark of %s: %v", c.path, err)
+		}
+	}
+	log.Printf("%d of %d stopped chats continue in %s", n, len(cut), a.label())
 }
 
 // saveActive keeps the signed-in account's latest login before it is replaced.

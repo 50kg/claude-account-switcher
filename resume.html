@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="color-scheme" content="light dark">
+<title>Continue chats?</title>
+<style>
+  :root {
+    --bg: #faf9f5;
+    --card: #ffffff;
+    --line: #e7e5dc;
+    --text: #1f1e1d;
+    --muted: #73726c;
+    --accent: #c96442;
+    --accent-hover: #b4583a;
+    --on-accent: #ffffff;
+    --ring-track: rgba(142, 142, 147, 0.35);
+    --green: #34c759;
+    --shadow: 0 1px 2px rgba(31, 30, 29, 0.04);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #262624;
+      --card: #30302e;
+      --line: #42413d;
+      --text: #f5f4ef;
+      --muted: #a6a39a;
+      --accent: #d97757;
+      --accent-hover: #e48b6e;
+      --on-accent: #1f1e1d;
+      --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); }
+  body {
+    font: 14px/1.45 "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+    -webkit-user-select: none;
+    overflow: hidden;
+    cursor: default;
+  }
+  main { padding: 22px 24px 20px; animation: in 180ms ease-out both; }
+
+  header { display: flex; gap: 14px; align-items: flex-start; }
+  .mark {
+    flex: none; width: 42px; height: 42px; border-radius: 12px;
+    display: grid; place-items: center;
+    background: var(--card); border: 1px solid var(--line); box-shadow: var(--shadow);
+  }
+  h1 { margin: 1px 0 4px; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+  header p { margin: 0; color: var(--muted); font-size: 13px; }
+  header p b { color: var(--text); font-weight: 600; }
+
+  .toolbar {
+    display: flex; justify-content: space-between; align-items: center;
+    margin: 18px 2px 8px; font-size: 12px; color: var(--muted);
+  }
+  .link {
+    border: 0; background: none; padding: 2px 4px; margin: -2px -4px; border-radius: 6px;
+    font: inherit; font-weight: 600; color: var(--accent); cursor: pointer;
+  }
+  .link:hover { color: var(--accent-hover); }
+  .link:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); }
+
+  .list { display: grid; gap: 8px; max-height: 312px; overflow-y: auto; padding: 2px; margin: -2px; }
+  .list::-webkit-scrollbar { width: 8px; }
+  .list::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+
+  .chat {
+    position: relative; display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 12px; align-items: center;
+    padding: 11px 14px; border-radius: 12px; cursor: pointer;
+    background: var(--card); border: 1px solid var(--line); box-shadow: var(--shadow);
+    transition: border-color 140ms, background-color 140ms;
+    animation: in 220ms ease-out both;
+  }
+  .chat:hover { border-color: color-mix(in srgb, var(--muted) 45%, var(--line)); }
+  .chat.on { border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); background: color-mix(in srgb, var(--accent) 5%, var(--card)); }
+  .chat input { position: absolute; opacity: 0; pointer-events: none; }
+  .chat:has(input:focus-visible) { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 1px; }
+
+  .box {
+    width: 18px; height: 18px; border-radius: 5px; display: grid; place-items: center;
+    border: 1.5px solid color-mix(in srgb, var(--muted) 70%, transparent);
+    transition: background-color 140ms, border-color 140ms;
+  }
+  .box svg { width: 12px; height: 12px; opacity: 0; transform: scale(0.6); transition: opacity 120ms, transform 160ms cubic-bezier(.3, 1.6, .5, 1); }
+  .on .box { background: var(--accent); border-color: var(--accent); }
+  .on .box svg { opacity: 1; transform: none; }
+
+  .title { display: block; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color 140ms; }
+  .chat:not(.on) .title { color: var(--muted); }
+  .folder {
+    display: flex; align-items: center; gap: 5px; margin-top: 1px;
+    font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden;
+  }
+  .folder span { overflow: hidden; text-overflow: ellipsis; }
+  .folder svg { flex: none; width: 12px; height: 12px; }
+
+  footer { margin-top: 18px; }
+  .timer { display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--muted); }
+  .track { flex: 1; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
+  .fill { height: 100%; width: 100%; background: var(--accent); border-radius: 2px; transition: opacity 200ms; }
+  .timer .left { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .paused .fill { opacity: 0.35; }
+
+  .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+  button.btn {
+    height: 34px; padding: 0 16px; border-radius: 9px; cursor: pointer;
+    font: inherit; font-size: 13.5px; font-weight: 600;
+    transition: background-color 140ms, border-color 140ms, opacity 140ms;
+  }
+  .btn:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 2px; }
+  .secondary { background: transparent; color: var(--text); border: 1px solid var(--line); }
+  .secondary:hover { background: var(--card); }
+  .primary { background: var(--accent); color: var(--on-accent); border: 1px solid var(--accent); min-width: 128px; }
+  .primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+  .primary:disabled { opacity: 0.45; cursor: default; background: var(--accent); }
+
+  @keyframes in { from { opacity: 0; transform: translateY(4px); } }
+  @media (prefers-reduced-motion: reduce) { *, *::before { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="mark" aria-hidden="true">
+      <svg width="26" height="26" viewBox="0 0 128 128">
+        <g transform="translate(64 64)">
+          <circle r="46" fill="none" stroke="var(--ring-track)" stroke-width="16"/>
+          <circle r="46" fill="none" stroke="var(--green)" stroke-width="16" pathLength="100" stroke-dasharray="42 100" stroke-linecap="round" transform="rotate(-90)"/>
+          <circle r="15" fill="var(--green)"/>
+        </g>
+      </svg>
+    </div>
+    <div>
+      <h1>Continue your chats?</h1>
+      <p id="lead"></p>
+    </div>
+  </header>
+
+  <div class="toolbar">
+    <span id="count"></span>
+    <button class="link" id="toggle" type="button"></button>
+  </div>
+  <div class="list" id="list"></div>
+
+  <footer>
+    <div class="timer" id="timer">
+      <div class="track"><div class="fill" id="fill"></div></div>
+      <span class="left" id="left"></span>
+    </div>
+    <div class="actions">
+      <button class="btn secondary" id="skip" type="button">Don't continue</button>
+      <button class="btn primary" id="go" type="button"></button>
+    </div>
+  </footer>
+</main>
+
+<template id="row">
+  <label class="chat on">
+    <input type="checkbox" checked>
+    <span class="box"><svg viewBox="0 0 12 12" fill="none" stroke="var(--on-accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.2l2.3 2.3 4.7-5"/></svg></span>
+    <span>
+      <span class="title"></span>
+      <span class="folder"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"><path d="M1.5 3.2c0-.5.4-.9.9-.9h2.4l1.1 1.2h3.7c.5 0 .9.4.9.9v4.9c0 .5-.4.9-.9.9H2.4c-.5 0-.9-.4-.9-.9z"/></svg><span></span></span>
+    </span>
+  </label>
+</template>
+
+<script>
+const data = /*DATA*/{"account":"Senior Claus (Pro)","wait":30,"chats":[{"title":"Stripe-Zahlung und Validierung","folder":"Trilluminati"},{"title":"Fix the login bug & add tests","folder":"ClaudeAccountSwitcher"}]};
+const $ = id => document.getElementById(id);
+const send = (name, arg) => (typeof window[name] === "function" ? window[name](arg) : console.log(name, arg));
+
+const lead = $("lead");
+lead.append(data.account ? "These chats were working when Claude closed to switch to " : "These chats were working when Claude closed. ");
+if (data.account) {
+  const b = document.createElement("b");
+  b.textContent = data.account;
+  lead.append(b, ". ");
+}
+lead.append("Checked chats pick up where they left off.");
+
+const boxes = data.chats.map((chat, i) => {
+  const row = $("row").content.firstElementChild.cloneNode(true);
+  row.querySelector(".title").textContent = chat.title;
+  row.querySelector(".title").title = chat.title;
+  const folder = row.querySelector(".folder");
+  if (chat.folder) folder.querySelector("span").textContent = chat.folder;
+  else folder.remove();
+  row.style.animationDelay = 40 + i * 35 + "ms";
+  const box = row.querySelector("input");
+  box.addEventListener("change", () => { row.classList.toggle("on", box.checked); pause(); update(); });
+  $("list").append(row);
+  return box;
+});
+
+function update() {
+  const n = boxes.filter(b => b.checked).length;
+  $("count").textContent = `${n} of ${boxes.length} selected`;
+  $("toggle").textContent = n === boxes.length ? "Select none" : "Select all";
+  $("go").textContent = n === 0 ? "Continue" : n === 1 ? "Continue 1 chat" : `Continue ${n} chats`;
+  $("go").disabled = n === 0;
+}
+
+$("toggle").addEventListener("click", () => {
+  const all = boxes.every(b => b.checked);
+  boxes.forEach(b => { b.checked = !all; b.closest(".chat").classList.toggle("on", !all); });
+  pause();
+  update();
+});
+
+let done = false;
+function finish(keep) {
+  if (done) return;
+  done = true;
+  clearInterval(tick);
+  send("resumeDone", keep);
+}
+$("go").addEventListener("click", () => finish(boxes.map(b => b.checked)));
+$("skip").addEventListener("click", () => finish(boxes.map(() => false)));
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") finish(boxes.map(() => false));
+  if (e.key === "Enter" && !(e.target instanceof HTMLButtonElement)) { e.preventDefault(); if (!$("go").disabled) $("go").click(); }
+});
+
+const ends = Date.now() + data.wait * 1000;
+const tick = setInterval(() => {
+  const ms = Math.max(0, ends - Date.now());
+  $("fill").style.width = (ms / (data.wait * 1000)) * 100 + "%";
+  $("left").textContent = `Continuing in ${Math.ceil(ms / 1000)} s`;
+  if (ms === 0) finish(boxes.map(b => b.checked));
+}, 100);
+$("left").textContent = `Continuing in ${data.wait} s`;
+
+// Someone choosing gets all the time they need.
+function pause() {
+  if ($("timer").classList.contains("paused")) return;
+  clearInterval(tick);
+  $("timer").classList.add("paused");
+  $("left").textContent = "Waiting for you";
+}
+
+update();
+requestAnimationFrame(() => send("resumeFit", Math.ceil(document.querySelector("main").getBoundingClientRect().height)));
+</script>
+</body>
+</html>

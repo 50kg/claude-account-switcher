@@ -124,15 +124,22 @@ func desktopRunning() bool {
 	return len(pids) > 0
 }
 
-// quitDesktop asks the app to close, then ends it if it is still running.
+// quitDesktop asks the app to quit, then ends it if it is still running.
 func quitDesktop() error {
 	pids, _ := desktopProcesses()
 	if len(pids) == 0 {
 		return nil
 	}
 	began := time.Now()
+	endSession(pids)
+	// Quitting stops every running chat first, which can take a while.
+	if waitGone(20 * time.Second) {
+		log.Printf("Claude quit after %s", time.Since(began).Round(100*time.Millisecond))
+		return nil
+	}
+	pids, _ = desktopProcesses()
 	run("taskkill", pidArgs(pids)...)
-	if waitGone(8 * time.Second) {
+	if waitGone(5 * time.Second) {
 		log.Printf("Claude closed after %s", time.Since(began).Round(100*time.Millisecond))
 		return nil
 	}
@@ -145,6 +152,40 @@ func quitDesktop() error {
 		return nil
 	}
 	return errors.New("Claude did not quit")
+}
+
+var (
+	user32                 = windows.NewLazySystemDLL("user32.dll")
+	procSendMessageTimeout = user32.NewProc("SendMessageTimeoutW")
+	enumAppWindows         = windows.NewCallback(endSessionOf)
+	endingPids             map[uint32]bool
+)
+
+const (
+	wmEndSession       = 0x0016
+	endSessionCloseApp = 0x1
+	smtoAbortIfHung    = 0x2
+)
+
+// endSession tells the app's windows that Windows is closing the app, the
+// way an installer or a restart does. The app then quits as it does from its
+// own menu: it stops the running chats and marks them, and continues them on
+// its next start. taskkill only sends a close request, which the app takes
+// as hiding to the tray. Callers run one quit at a time.
+func endSession(pids []uint32) {
+	endingPids = map[uint32]bool{}
+	for _, p := range pids {
+		endingPids[p] = true
+	}
+	_ = windows.EnumWindows(enumAppWindows, nil)
+}
+
+func endSessionOf(hwnd windows.HWND, _ uintptr) uintptr {
+	var pid uint32
+	if _, err := windows.GetWindowThreadProcessId(hwnd, &pid); err == nil && endingPids[pid] {
+		procSendMessageTimeout.Call(uintptr(hwnd), wmEndSession, 1, endSessionCloseApp, smtoAbortIfHung, 2000, 0)
+	}
+	return 1
 }
 
 func pidArgs(pids []uint32) []string {

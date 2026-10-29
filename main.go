@@ -19,6 +19,10 @@ import (
 const version = "0.3.5"
 
 func main() {
+	// The dialog process started by askInDialogProcess.
+	if len(os.Args) == 2 && os.Args[1] == resumeFlag {
+		os.Exit(runResumeDialog())
+	}
 	status := flag.Bool("status", false, "print accounts and usage, then exit")
 	flag.Parse()
 
