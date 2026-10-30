@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 // There is no official Claude desktop app for this platform. These stubs keep
@@ -29,4 +30,14 @@ func decryptValue([]byte) ([]byte, error)  { return nil, errUnsupported }
 
 func relaunchOutsideDesktop(string) bool { return false }
 func launch(string) error                { return errUnsupported }
-func endOldSwitcher() bool               { return false }
+func askToQuitOld()                      {}
+
+func nativeResume(titles []string, _ time.Duration) []bool {
+	keep := make([]bool, len(titles))
+	for i := range keep {
+		keep[i] = true
+	}
+	return keep
+}
+
+func showWebDialog(string, int) ([]bool, error) { return nil, errUnsupported }

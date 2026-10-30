@@ -124,15 +124,22 @@ func desktopRunning() bool {
 	return len(pids) > 0
 }
 
-// quitDesktop asks the app to close, then ends it if it is still running.
+// quitDesktop asks the app to quit, then ends it if it is still running.
 func quitDesktop() error {
 	pids, _ := desktopProcesses()
 	if len(pids) == 0 {
 		return nil
 	}
 	began := time.Now()
+	endSession(pids)
+	// Quitting stops every running chat first, which can take a while.
+	if waitGone(20 * time.Second) {
+		log.Printf("Claude quit after %s", time.Since(began).Round(100*time.Millisecond))
+		return nil
+	}
+	pids, _ = desktopProcesses()
 	run("taskkill", pidArgs(pids)...)
-	if waitGone(8 * time.Second) {
+	if waitGone(5 * time.Second) {
 		log.Printf("Claude closed after %s", time.Since(began).Round(100*time.Millisecond))
 		return nil
 	}
@@ -145,6 +152,40 @@ func quitDesktop() error {
 		return nil
 	}
 	return errors.New(tr("Claude did not quit", "Claude 未能退出，请手动关闭后重试"))
+}
+
+var (
+	user32                 = windows.NewLazySystemDLL("user32.dll")
+	procSendMessageTimeout = user32.NewProc("SendMessageTimeoutW")
+	enumAppWindows         = windows.NewCallback(endSessionOf)
+	endingPids             map[uint32]bool
+)
+
+const (
+	wmEndSession       = 0x0016
+	endSessionCloseApp = 0x1
+	smtoAbortIfHung    = 0x2
+)
+
+// endSession tells the app's windows that Windows is closing the app, the
+// way an installer or a restart does. The app then quits as it does from its
+// own menu: it stops the running chats and marks them, and continues them on
+// its next start. taskkill only sends a close request, which the app takes
+// as hiding to the tray. Callers run one quit at a time.
+func endSession(pids []uint32) {
+	endingPids = map[uint32]bool{}
+	for _, p := range pids {
+		endingPids[p] = true
+	}
+	_ = windows.EnumWindows(enumAppWindows, nil)
+}
+
+func endSessionOf(hwnd windows.HWND, _ uintptr) uintptr {
+	var pid uint32
+	if _, err := windows.GetWindowThreadProcessId(hwnd, &pid); err == nil && endingPids[pid] {
+		procSendMessageTimeout.Call(uintptr(hwnd), wmEndSession, 1, endSessionCloseApp, smtoAbortIfHung, 2000, 0)
+	}
+	return 1
 }
 
 func pidArgs(pids []uint32) []string {
@@ -221,40 +262,12 @@ func shellOpen(target string) { _ = start("explorer.exe", target) }
 // launch starts the switcher at exe on its own.
 func launch(exe string) error { return start(exe) }
 
-// endOldSwitcher closes a switcher from before 0.3.3 that holds the instance
-// port without answering hello. It only touches a process whose file name
-// starts with claude-account-switcher, and asks it to close before ending it.
-func endOldSwitcher() bool {
-	out, err := output("netstat", "-ano", "-p", "TCP")
-	if err != nil {
-		return false
-	}
-	// The state column is translated, a listening port shows as 0.0.0.0:0 on
-	// the other end in every language.
-	var pid uint64
-	for _, line := range strings.Split(out, "\n") {
-		f := strings.Fields(line)
-		if len(f) == 5 && f[1] == instancePort && f[2] == "0.0.0.0:0" {
-			pid, _ = strconv.ParseUint(f[4], 10, 32)
-		}
-	}
-	if pid == 0 || pid == uint64(os.Getpid()) {
-		return false
-	}
-	name := strings.ToLower(filepath.Base(processPath(uint32(pid))))
-	if !strings.HasPrefix(name, "claude-account-switcher") {
-		return false
-	}
-	id := strconv.FormatUint(pid, 10)
-	run("taskkill", "/PID", id)
-	for range 15 {
-		time.Sleep(200 * time.Millisecond)
-		if processPath(uint32(pid)) == "" {
-			return true
-		}
-	}
-	run("taskkill", "/F", "/PID", id)
-	return true
+// askToQuitOld tells the user to quit a switcher from before 0.3.3, which
+// holds the instance port without answering hello.
+func askToQuitOld() {
+	title, _ := windows.UTF16PtrFromString(tr("Claude Account Switcher", "Claude 账号切换器"))
+	text, _ := windows.UTF16PtrFromString(tr("An older Claude Account Switcher is still running. Choose Quit in its tray menu, then start this one again.", "旧版 Claude 账号切换器仍在运行。请先在旧版托盘菜单中选择“退出”，再打开新版。"))
+	windows.MessageBox(0, text, title, windows.MB_OK|windows.MB_ICONINFORMATION)
 }
 
 const runKey = `Software\Microsoft\Windows\CurrentVersion\Run`

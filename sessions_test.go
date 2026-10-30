@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestSyncSessionsKeepsAccountLocalIdentity(t *testing.T) {
@@ -218,5 +219,63 @@ func TestSyncSessionsRealSample(t *testing.T) {
 	}
 	if len(before) != 0 {
 		t.Fatal("round trip removed a target account's entry")
+	}
+}
+
+func TestTakeCutChatsMovesMarkToTargetAccount(t *testing.T) {
+	root := t.TempDir()
+	since := time.UnixMilli(1000)
+	src := filepath.Join(root, "a", "oa", "local_one.json")
+	write(t, src, `{"cliSessionId":"run","title":"Running","interruptedByQuitAt":1500,"interruptedAwaitingPerson":false,"isArchived":false}`)
+	dst := filepath.Join(root, "b", "ob", "local_one.json")
+	write(t, dst, `{"cliSessionId":"run","title":"Running","isArchived":false}`)
+	write(t, filepath.Join(root, "a", "oa", "local_old.json"), `{"cliSessionId":"old","interruptedByQuitAt":500}`)
+	write(t, filepath.Join(root, "b", "ob", "local_old.json"), `{"cliSessionId":"old"}`)
+	write(t, filepath.Join(root, "a", "oa", "local_hidden.json"), `{"cliSessionId":"hidden","interruptedByQuitAt":1500}`)
+
+	cut := takeCutChats(root, "b", "ob", since, nil)
+	if len(cut) != 1 || cut[0].title != "Running" || !samePath(cut[0].path, dst) {
+		t.Fatalf("cut = %+v, want only the chat stopped by this quit, at its target entry", cut)
+	}
+	o, err := readObject(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := o.get("interruptedByQuitAt"); string(v) != "1500" {
+		t.Fatalf("target mark = %s, want 1500", v)
+	}
+	if v, _ := o.get("interruptedAwaitingPerson"); string(v) != "false" {
+		t.Fatalf("target awaiting = %s, want false", v)
+	}
+	if o, _ := readObject(src); o != nil {
+		if _, ok := o.get("interruptedByQuitAt"); ok {
+			t.Fatal("source kept its mark, a later switch back would continue the chat again")
+		}
+	}
+	if o, _ := readObject(filepath.Join(root, "a", "oa", "local_hidden.json")); o != nil {
+		if _, ok := o.get("interruptedByQuitAt"); !ok {
+			t.Fatal("removed the mark of a chat the target account cannot see")
+		}
+	}
+	if err := clearCutMark(dst); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, dst); got != "{\n\t\"cliSessionId\": \"run\",\n\t\"title\": \"Running\",\n\t\"isArchived\": false\n}" {
+		t.Fatalf("cleared entry = %q", got)
+	}
+}
+
+func TestTakeCutChatsSameAccount(t *testing.T) {
+	root := t.TempDir()
+	p := filepath.Join(root, "a", "oa", "local_one.json")
+	write(t, p, `{"cliSessionId":"run","cwd":"/proj/app","interruptedByQuitAt":1500}`)
+	cut := takeCutChats(root, "a", "oa", time.UnixMilli(1000), nil)
+	if len(cut) != 1 || cut[0].title != "app" {
+		t.Fatalf("cut = %+v, want the chat named after its folder", cut)
+	}
+	if o, _ := readObject(p); o != nil {
+		if _, ok := o.get("interruptedByQuitAt"); !ok {
+			t.Fatal("restart in the same account removed the mark")
+		}
 	}
 }

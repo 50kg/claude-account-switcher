@@ -46,7 +46,7 @@
 
 **聊天和项目随账号切换。** Claude 启动前，切换器把其他账号的聊天列表条目导入目标账号，并同步项目分组。同步会参考删除标记，避免重新导入已删除的聊天。
 
-同一个真实会话在不同账号下可能拥有不同的本地列表 ID。导入时通过 `cliSessionId` 去重，保留目标账号已有条目的本地 ID 和账号相关设置；没有 CLI ID 的旧条目按文件名处理。此修复用于防止新增重复条目，不会自动删除已经存在的重复索引。
+**继续被切换中断的聊天。** 切换器会识别正在回复或运行工具的 Claude Code 聊天，在 Claude 再次启动前询问哪些聊天需要继续。勾选的聊天会在新账号下从中断处继续处理。
 
 **同时查看所有账号的用量。** 菜单显示各账号的 5 小时用量、每周用量和周额度重置时间；5 小时用量接近阈值时也显示其重置时间。托盘圆环随当前账号的 5 小时用量填充：通常为绿色，达到 75% 时变橙色，达到切换阈值时变红色。
 
@@ -120,7 +120,7 @@
 - **额度接近用尽时自动切换：**当前账号接近额度上限时，选择可用空间更多的账号。
 - **优先使用即将重置的周额度：**选择周额度即将重置、但仍有较多剩余额度的账号。
 
-切换会重启 Claude。正在生成的回复可能因此中断，之后可以在另一个账号的同一聊天中继续。
+切换会重启 Claude。正在生成的回复会暂停，切换器会询问哪些聊天需要在新账号下继续，详见“继续被中断的聊天”。
 
 原版 README 对服务条款的说明是：拥有多个账号与绕过系统或保护措施是不同的事项。自动切换是否适合你的使用方式，需要结合适用条款自行判断，因此两个开关都默认关闭。本段为原项目说明的译述。
 
@@ -163,6 +163,18 @@
 
 </details>
 
+## 继续被中断的聊天
+
+切换账号需要关闭 Claude，正在回复或运行工具的 Claude Code 聊天会因此暂停。Claude 再次启动前，切换器会列出这些聊天，显示标题和项目文件夹。
+
+- 默认勾选全部聊天；点击“继续”后，由 Claude 在新账号下继续处理选中的聊天。
+- 点击“不继续”、按 Escape 或关闭窗口，都不会继续这些聊天。
+- 30 秒无人操作时，默认继续全部；操作复选框或全选按钮后，倒计时停止，等待你确认。
+- Windows 使用系统 WebView2 显示选择窗口；无法使用时会回退到原生对话框。macOS 使用 WebKit，必要时回退到系统列表对话框。
+- 窗口沿用托盘程序的语言，包括通过 `-lang` 显式选择的语言。
+
+继续聊天使用 Claude 自己的重启恢复机制，切换器只设置或清除本地索引中的恢复标记，不修改聊天正文。
+
 ## 工作原理
 
 切换器保存和恢复各账号的登录状态，在账号之间复制聊天列表与项目分组，并从 `api.anthropic.com` 查询用量。每次切换前会备份登录配置和 Cookie，其他 Claude 设置保持原样。
@@ -185,7 +197,10 @@ Claude 的数据目录因系统和安装方式而异：
 | 聊天列表 | `claude-code-sessions/<account>/<organization>/local_<id>.json` | 按真实会话 ID 去重，补充缺失条目；相同本地 ID 的旧副本可更新，不自动删除已有文件 |
 | 已删除聊天标记 | 条目旁的 `deleted_<id>` | 读取标记，在能够关联到真实会话时也跳过其其他本地别名 |
 | 项目分组 | `local-agent-mode-sessions/<account>/<organization>/spaces.json` | 添加缺失项目、更新较旧副本；跨组织复制时去掉来源组织的 claude.ai 项目关联，并参考已见项目记录 |
-| 聊天正文 | `~/.claude/projects` | 不修改；这些本地聊天内容已经由各账号共享 |
+| 切换中断的聊天 | `local_<id>.json` 中的 `interruptedByQuitAt` 等字段 | 在目标账号的索引中设置恢复标记，并清除其他账号副本及未勾选聊天的标记 |
+| 聊天正文 | `~/.claude/projects` | 读取最近 30 分钟内写入的聊天末尾，判断是否仍在处理任务；从不写入 |
+
+**关闭 Claude。** Windows 上先向 Claude 窗口发送系统结束会话消息，让它正常停止正在处理的聊天并退出；超过 20 秒仍未退出时，再使用关闭请求和强制退出作为后备。普通关闭窗口通常只会把 Claude 隐藏到托盘。
 
 每次切换前会备份 `config.json` 和 Cookie 存储，保留最近 10 份。修改登录文件失败时会尝试恢复备份，并在菜单顶部显示错误。这份备份不包含整个聊天和项目目录。
 
@@ -201,7 +216,7 @@ Claude 的数据目录因系统和安装方式而异：
 
 | 项目 | 说明 |
 | --- | --- |
-| 已保存的登录、状态、备份和日志 | 位于 `~/.claude-account-switcher`；Windows 为 `%USERPROFILE%\.claude-account-switcher`，可通过“打开数据文件夹”进入 |
+| 已保存的登录、状态、备份和日志 | 位于 `~/.claude-account-switcher`；Windows 为 `%USERPROFILE%\.claude-account-switcher`，可通过“打开数据文件夹”进入；`webview/` 为聊天恢复选择窗口的 WebView2 配置目录 |
 | Token | 按 Claude 原有加密形式保存，不写成明文，只向 `api.anthropic.com` 发送 |
 | 网络访问 | `api.anthropic.com` 用于账号信息和用量；`api.github.com` 用于每日版本查询，后者可关闭；点击更新时还会访问 `github.com` |
 | 移除账号 | 退出切换器，删除 `accounts/` 下相应账号目录，以及 `state.json` 中的相应条目 |
@@ -234,7 +249,13 @@ CGO_ENABLED=1 go build -o claude-account-switcher .                        # mac
 go build -ldflags "-H=windowsgui -s -w -X main.defaultLanguage=zh-CN -X main.manualUpdateURL=https://github.com/50kg/claude-account-switcher/releases/latest" -o claude-account-switcher-zh-CN.exe .
 ```
 
-标准库之外，主要依赖 [`fyne.io/systray`](https://github.com/fyne-io/systray) 提供系统托盘能力，Windows 还使用 `golang.org/x/sys`。
+标准库之外，使用 [`fyne.io/systray`](https://github.com/fyne-io/systray) 提供系统托盘能力；聊天恢复选择窗口在 Windows 上使用 [`jchv/go-webview2`](https://github.com/jchv/go-webview2)，macOS 上使用 [`webview/webview_go`](https://github.com/webview/webview_go)。Windows 还使用 `golang.org/x/sys`。
+
+为 Windows exe 添加版本信息和应用清单时，可先执行上游构建流程中的资源生成命令，再执行上述编译命令：
+
+```powershell
+go run github.com/tc-hib/go-winres@v0.3.3 make --arch amd64 --product-version 0.3.6.0 --file-version 0.3.6.0
+```
 
 如需运行额外的真实聊天索引回归检查，可将 `SESSION_INDEX_SAMPLE` 设置为已去重的、离线的 `claude-code-sessions` 目录副本，再运行 `go test ./...`。测试只操作临时副本，不会修改提供的样本。请勿把真实账号数据或聊天索引提交到仓库。
 

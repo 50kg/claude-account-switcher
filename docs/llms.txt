@@ -19,4 +19,5 @@ It switches the Claude desktop app (including the Microsoft Store version on Win
 - Windows install via winget: `winget install SnlperStripes.ClaudeAccountSwitcher`
 - Tokens stay encrypted as Claude stored them and are only sent to api.anthropic.com; the only other request is an optional daily GitHub check for a new version
 - Optional auto-switch to the account with the most room left at 96% (or 90, 94, 98)
+- After a switch, asks which Claude Code chats that were mid-reply should continue, and Claude picks them up on the new account
 - Command line: `claude-account-switcher -status` prints every account's usage

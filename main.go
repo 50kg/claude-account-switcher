@@ -16,9 +16,13 @@ import (
 	"fyne.io/systray"
 )
 
-const version = "0.3.3"
+const version = "0.3.6"
 
 func main() {
+	// The dialog process started by askInDialogProcess.
+	if len(os.Args) == 2 && os.Args[1] == resumeFlag {
+		os.Exit(runResumeDialog())
+	}
 	status := flag.Bool("status", false, tr("print accounts and usage, then exit", "显示账号及用量，然后退出"))
 	lang := flag.String("lang", defaultLanguage, "interface language / 界面语言: en, zh-CN")
 	flag.Parse()

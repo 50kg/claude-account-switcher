@@ -48,7 +48,7 @@ Three of those four steps are pure overhead, and the fourth is a guess.
 
 **Brings your chats along.** Before Claude starts, the switcher copies the chat list entries of your other accounts into the one you switch to. Open the chat you were in and keep going. Projects come along too, so chats stay grouped in them. Chats you deleted stay deleted.
 
-The same conversation can have different local list IDs in different accounts. Imports deduplicate by `cliSessionId`, preserve an existing target account's local ID and settings, and use filenames as a fallback for older entries without a CLI ID. Existing duplicate files are not automatically deleted.
+**Picks up where Claude stopped.** A switch restarts Claude, and a chat that was working at that moment would just stand still. The switcher notices which chats were in the middle of a reply and asks in a small window which of them should go on. Claude then continues the checked ones on the new account by itself.
 
 **Shows usage for all accounts at once.** 5-hour and weekly usage for every saved account, live, with when each weekly limit resets and the 5-hour reset once that limit is close. The tray icon is a ring that fills with the active account's 5-hour usage: green, orange from 75%, red at your switch threshold.
 
@@ -106,7 +106,7 @@ Two toggles in the menu, both off until you turn them on:
 - **Auto-switch** moves Claude to the account with the most room left once the active one is nearly full.
 - **Auto-switch to use up expiring weekly** moves Claude to an account whose weekly limit resets soon with most of it unused, so that usage is not lost.
 
-A switch restarts Claude. A reply that is being written at that moment stops, and you continue it in the same chat on the other account.
+A switch restarts Claude. A reply that is being written at that moment stops, and Claude picks it up again on the other account, see [Chats that were working](#chats-that-were-working).
 
 Anthropic's terms do not forbid having more than one account. They do forbid "bypassing any of our systems or protective measures". Whether automatic switching fits how you use your accounts is your call, which is why both toggles are off until you turn them on.
 
@@ -151,6 +151,31 @@ After any automatic switch, from either toggle, the top of the menu says why for
 
 </details>
 
+## Chats that were working
+
+Claude has to quit for a switch, so every Claude Code chat that is writing a reply or running a tool stops. Before Claude starts again, a window lists those chats:
+
+<img src="assets/resume-dialog.png" width="462" alt="The window that asks which stopped chats continue: three chats with title and project folder, all checked, a countdown bar, and the buttons Don't continue and Continue 3 chats">
+
+- Each chat shows its title and project folder, all checked.
+- **Continue** lets Claude carry on with the checked ones. **Don't continue**, Escape or closing the window leaves all of them where they stopped.
+- Nobody answering means all of them go on after 30 seconds, so an automatic switch at night does not leave work standing. Touching a checkbox stops the countdown.
+
+When Claude is back, it sends each checked chat "The app was quit while you were working. Please continue from where you left off." and the chat goes on in the account you switched to. That is Claude's own way of continuing after a restart; the switcher only tells it which chats to continue.
+
+<details>
+<summary><b>How the switcher knows which chats were working</b></summary>
+
+&nbsp;
+
+Right before Claude quits, the switcher reads the end of every Claude Code conversation written to in the last 30 minutes. A chat counts as working when its last message is a prompt or tool result Claude has not answered yet, or a tool call. A finished reply or a reply you stopped yourself does not count.
+
+For each chat you keep checked, the switcher writes the mark Claude itself leaves when it quits during a reply (`interruptedByQuitAt`) into that chat's entry of the account you switch to, and removes the mark from the other accounts' copies, so the chat is not continued twice. Claude continues marked chats for 24 hours after the restart; a chat it cannot reach in that time simply stays where it stopped.
+
+On Windows the window is drawn with WebView2, which comes with Windows 11 and current Windows 10. Without it, a plain Windows dialog asks the same question. On macOS it uses WebKit; like the rest of the macOS build, this has not been tested on a real Mac yet.
+
+</details>
+
 ## How it works
 
 The switcher saves and restores the sign-in of each account, copies the chat list and projects between accounts, and reads usage from `api.anthropic.com`. It backs up Claude's files before every switch and leaves the rest of Claude's settings alone.
@@ -175,7 +200,10 @@ Claude keeps its sign-in in two places inside its data folder:
 | Chat list | `claude-code-sessions/<account>/<organization>/local_<id>.json` | Copies missing entries in, refreshes older ones, never deletes |
 | Deleted chats | `deleted_<id>` next to the entries | Reads them, so a deleted chat is never copied back |
 | Projects | `local-agent-mode-sessions/<account>/<organization>/spaces.json` | Adds missing projects, refreshes older ones, never deletes. Leaves out the claude.ai project link of the other organization, and a project you deleted in an account is not copied back |
-| Conversations | `~/.claude/projects` | Nothing. They are shared by all accounts already |
+| Chats stopped by a switch | `interruptedByQuitAt` in their `local_<id>.json` | Sets Claude's own quit mark on the chats you chose to continue, removes it from the other accounts' copies and from chats you unchecked |
+| Conversations | `~/.claude/projects` | Reads the end of the ones written to in the last 30 minutes to see which chats are mid-reply. Never writes. They are shared by all accounts already |
+
+**Quitting Claude.** On Windows the switcher tells Claude's windows that Windows is closing the app, the way an installer does, and Claude quits within a second or two. A plain close request would only hide Claude in the tray. If Claude is still running after 20 seconds, it is ended.
 
 Before each switch, `config.json` and the cookie store are backed up. The last 10 backups are kept. If any step fails, the backup goes back and the error shows at the top of the menu.
 
@@ -191,7 +219,7 @@ Before each switch, `config.json` and the cookie store are backed up. The last 1
 
 | | |
 | --- | --- |
-| Saved sign-ins, state, backups, log | `~/.claude-account-switcher` (`%USERPROFILE%\.claude-account-switcher` on Windows), **Open data folder** in the menu |
+| Saved sign-ins, state, backups, log | `~/.claude-account-switcher` (`%USERPROFILE%\.claude-account-switcher` on Windows), **Open data folder** in the menu. On Windows, `webview` in there is the WebView2 profile of the window that asks which chats continue |
 | Tokens | Stored exactly as Claude encrypted them. Never written in plain text, never sent anywhere but `api.anthropic.com` |
 | Network | `api.anthropic.com` for profiles and usage. `api.github.com` once a day for the latest version number, off with `"noUpdateCheck": true` in `state.json`. `github.com` only when you click to update |
 | Remove an account | Quit the switcher, delete its folder under `accounts/` and its entry in `state.json` |
@@ -217,7 +245,7 @@ go build -ldflags "-H=windowsgui -s -w" -o claude-account-switcher.exe .   # Win
 CGO_ENABLED=1 go build -o claude-account-switcher .                        # macOS
 ```
 
-One dependency beyond the standard library: [`fyne.io/systray`](https://github.com/fyne-io/systray) for the tray icon, plus `golang.org/x/sys` on Windows.
+Dependencies beyond the standard library: [`fyne.io/systray`](https://github.com/fyne-io/systray) for the tray icon, and for the window that asks which chats continue [`jchv/go-webview2`](https://github.com/jchv/go-webview2) on Windows and [`webview/webview_go`](https://github.com/webview/webview_go) on macOS. On Windows also `golang.org/x/sys`.
 
 To build a Windows executable that opens in Simplified Chinese when double-clicked:
 
@@ -237,6 +265,9 @@ Install the switcher, add each account once with **Add account…**, then pick a
 
 **What happens to my Claude Code chats when I switch accounts?**
 They come along. The switcher copies the chat list and projects of your other accounts into the one you switch to, so the chat you were in shows up in the sidebar and you can keep going.
+
+**What happens to a reply Claude is writing when I switch?**
+It stops, because Claude has to restart. Before Claude starts again, the switcher asks which of the stopped chats should go on, and Claude continues those by itself on the new account. See [Chats that were working](#chats-that-were-working).
 
 **How do I see the usage of all my Claude accounts at once?**
 The tray menu shows 5-hour and weekly usage of every saved account, live, with when each limit resets. `claude-account-switcher -status` prints the same in a terminal.
