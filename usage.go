@@ -85,15 +85,30 @@ func apiGet(ctx context.Context, token, path string, out any) error {
 	case http.StatusOK:
 		return json.NewDecoder(res.Body).Decode(out)
 	case http.StatusUnauthorized:
-		return errSignedOut
+		return errUsageUnauthorized
 	case http.StatusTooManyRequests:
-		wait, _ := strconv.Atoi(res.Header.Get("Retry-After"))
-		return &rateLimited{after: time.Duration(wait) * time.Second}
+		return &rateLimited{after: retryAfter(res.Header.Get("Retry-After"), time.Now())}
 	}
-	return fmt.Errorf(tr("%s: HTTP %d", "请求 %s 失败（HTTP %d）"), path, res.StatusCode)
+	return fmt.Errorf(tr("%s: %s", "请求 %s 失败（%s）"), path, res.Status)
 }
 
-var errSignedOut = errors.New("sign-in expired")
+var (
+	errUsageUnauthorized     = errors.New("usage authorization rejected (HTTP 401)")
+	errUsageTokenExpired     = errors.New("usage token expired")
+	errUsageTokenUnavailable = errors.New("no usable token with the usage scope")
+)
+
+// Retry-After permits either seconds or an HTTP date. A long server-supplied
+// wait is honored; maxBackoff only caps the locally calculated fallback.
+func retryAfter(value string, now time.Time) time.Duration {
+	if seconds, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64); err == nil && seconds > 0 && seconds <= int64((1<<63-1)/time.Second) {
+		return time.Duration(seconds) * time.Second
+	}
+	if at, err := http.ParseTime(value); err == nil && at.After(now) {
+		return at.Sub(now)
+	}
+	return 0
+}
 
 // rateLimited is a 429. after is the server's Retry-After, zero when it gave none.
 type rateLimited struct{ after time.Duration }
@@ -144,6 +159,11 @@ func accessToken(cacheValue, account string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return tokenFromCache(plain, account, time.Now().UnixMilli())
+}
+
+// tokenFromCache only inspects the supplied cache; tests use synthetic data.
+func tokenFromCache(plain []byte, account string, now int64) (string, error) {
 	var cache map[string]struct {
 		Token     string `json:"token"`
 		ExpiresAt int64  `json:"expiresAt"`
@@ -152,17 +172,24 @@ func accessToken(cacheValue, account string) (string, error) {
 		return "", err
 	}
 	best, bestExp := "", int64(0)
-	now := time.Now().UnixMilli()
+	hadToken := false
 	for k, v := range cache {
 		if !strings.HasPrefix(k, "acct:"+account+"|") || !strings.Contains(k, "user:profile") {
 			continue
 		}
+		if v.Token == "" {
+			continue
+		}
+		hadToken = true
 		if v.ExpiresAt > now && v.ExpiresAt > bestExp {
 			best, bestExp = v.Token, v.ExpiresAt
 		}
 	}
 	if best == "" {
-		return "", errSignedOut
+		if hadToken {
+			return "", errUsageTokenExpired
+		}
+		return "", errUsageTokenUnavailable
 	}
 	return best, nil
 }

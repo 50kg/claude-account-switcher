@@ -97,7 +97,7 @@ Every download has a `.sha256` file next to it, so you can check it is the file 
 From then on, click an account to switch.
 
 > [!IMPORTANT]
-> **Never use Sign out in Claude to change accounts.** Signing out can end that sign-in on Anthropic's side, and the switcher's saved copy stops working. The account then shows "signed out, add it again". Use **Add account…** to sign it in once more.
+> **Never use Sign out in Claude to change accounts.** Signing out can end that sign-in on Anthropic's side, and the switcher's saved copy may stop working. Use **Add account…** when you actually need to save a new sign-in. A failure to query usage alone does not establish that Claude's desktop session has signed out.
 
 ## Auto-switch
 
@@ -208,6 +208,8 @@ Claude keeps its sign-in in two places inside its data folder:
 Before each switch, `config.json` and the cookie store are backed up. The last 10 backups are kept. If any step fails, the backup goes back and the error shows at the top of the menu.
 
 **Usage.** The saved token cache is decrypted in memory with Claude's own key (DPAPI on Windows, the keychain on macOS). The switcher then asks `api.anthropic.com` for each account's profile and usage, the same endpoints Claude and Claude Code use themselves. The active account is checked every two minutes, every minute from 85%, the others every ten. That endpoint is rate-limited per account and Claude polls it too, so after a `429` the switcher waits as long as the server asks, or backs off up to 30 minutes, and keeps showing the last numbers meanwhile. Claude's tokens last about a month, so a saved account keeps showing live usage without being signed in.
+
+**Usage status and desktop sign-in are separate.** A `429` displays a rate-limit warning and the retry time, which survives restarting the switcher. `401` means the usage endpoint rejected its credential; an expired or unavailable local usage token has its own warning. Timeouts and other request failures are temporary query errors. None of those alone proves that your current Claude desktop session has signed out. Cached figures are labeled as last known usage and failed checks are not used to choose an automatic account switch. Old ambiguous "signed out" warnings are rechecked instead of requiring an account to be added again.
 
 **Updates.** Once a day the switcher asks GitHub for the version number of the latest release. Nothing about you or your accounts goes along. When a newer version is out, the top of the menu says so. A click downloads it from the GitHub release, checks it against the published SHA-256, puts it in place of the running file and restarts on it. A download the switcher makes itself gets no SmartScreen or Gatekeeper warning. If that fails, the download page opens instead. Starting a newer version by hand also works: it asks the running one to quit and takes over. With winget, `winget upgrade SnlperStripes.ClaudeAccountSwitcher` does the same. To never contact GitHub, quit the switcher, add `"noUpdateCheck": true` to `state.json` and start it again.
 

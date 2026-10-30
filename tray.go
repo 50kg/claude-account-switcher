@@ -225,13 +225,11 @@ func (t *tray) render() {
 var menuTab = map[bool]string{true: "\t", false: "    "}[runtime.GOOS == "windows"]
 
 func usageText(a Account, threshold float64, now time.Time) string {
-	if a.Problem != "" {
-		if a.Problem == signedOutMessage {
-			return tr(signedOutMessage, "登录已失效，请重新添加账号")
-		}
-		return a.Problem
-	}
+	problem := usageProblemText(a, now)
 	if a.Usage == nil {
+		if problem != "" {
+			return problem
+		}
 		return tr("usage unknown", "用量未知")
 	}
 	u := a.Usage.current(now)
@@ -247,7 +245,11 @@ func usageText(a Account, threshold float64, now time.Time) string {
 		}
 		parts[1] += prefix + resetText(u.WeeklyReset, now)
 	}
-	return strings.Join(parts, " · ")
+	text := strings.Join(parts, " · ")
+	if problem != "" {
+		return problem + tr(" · last known: ", " · 上次用量：") + text
+	}
+	return text
 }
 
 func resetText(at, now time.Time) string {

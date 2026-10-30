@@ -22,6 +22,8 @@ type Account struct {
 	Plan    string `json:"plan"`
 	Usage   *Usage `json:"usage,omitempty"`
 	Problem string `json:"problem,omitempty"`
+	// A rate limit belongs to the usage endpoint, not the desktop sign-in.
+	UsageRetryAt time.Time `json:"usageRetryAt,omitempty"`
 }
 
 func (a *Account) label() string {
@@ -130,6 +132,16 @@ func newSwitcher(dir string) *switcher {
 	if s.st.Threshold <= 0 {
 		s.st.Threshold = defaultThreshold
 	}
+	for _, a := range s.st.Accounts {
+		// Older builds used this for both a missing token and HTTP 401, so it
+		// cannot establish whether the desktop session is actually signed out.
+		if a.Problem == signedOutMessage {
+			a.Problem = usageUnverifiedMessage
+		}
+		if a.UsageRetryAt.After(time.Now()) {
+			s.backoff[a.UUID] = a.UsageRetryAt
+		}
+	}
 	return s
 }
 
@@ -206,28 +218,8 @@ func (s *switcher) check(ctx context.Context) (string, func() error) {
 	if exe != "" {
 		s.st.AppExe = exe
 	}
-	type job struct {
-		uuid string
-		new  bool
-	}
 	now := time.Now()
-	var jobs []job
-	if active != "" && s.account(active) == nil && now.After(s.backoff[active]) {
-		jobs = append(jobs, job{active, true})
-	}
-	for _, a := range s.st.Accounts {
-		every := idleEvery
-		if a.UUID == active {
-			every = activeEvery
-			if a.Usage != nil && a.Usage.current(now).peak() >= hotAt {
-				every = hotEvery
-			}
-		}
-		due := a.Usage == nil || now.Sub(a.Usage.CheckedAt) >= every-5*time.Second
-		if due && now.After(s.backoff[a.UUID]) {
-			jobs = append(jobs, job{a.UUID, false})
-		}
-	}
+	jobs := s.usageJobs(active, now)
 	s.mu.Unlock()
 
 	added := false
@@ -243,37 +235,13 @@ func (s *switcher) check(ctx context.Context) (string, func() error) {
 		}
 
 		s.mu.Lock()
-		var limited *rateLimited
-		if errors.As(err, &limited) {
-			s.strikes[j.uuid]++
-			wait := limited.after
-			if wait <= 0 {
-				wait = min(activeEvery<<(s.strikes[j.uuid]-1), maxBackoff)
-			}
-			s.backoff[j.uuid] = time.Now().Add(wait)
-			log.Printf("usage %s: rate limited, next try in %s", j.uuid[:8], wait)
-		} else if err == nil {
-			delete(s.strikes, j.uuid)
-		}
-		a := s.account(j.uuid)
 		if j.new && err == nil {
-			a = &Account{UUID: j.uuid, Org: p.Organization.UUID, Name: p.Account.DisplayName, Email: p.Account.Email, Plan: p.plan()}
+			a := &Account{UUID: j.uuid, Org: p.Organization.UUID, Name: p.Account.DisplayName, Email: p.Account.Email, Plan: p.plan()}
 			s.st.Accounts = append(s.st.Accounts, a)
 			added = true
 			log.Printf("added account %s", a.label())
 		}
-		if a != nil {
-			switch {
-			case err == nil:
-				a.Usage, a.Problem = u, ""
-			case errors.Is(err, errSignedOut):
-				a.Problem = signedOutMessage
-			case limited != nil:
-				// Logged above; the last numbers stay until the next try.
-			default:
-				log.Printf("usage %s: %v", a.label(), err)
-			}
-		}
+		s.recordUsageResult(j.uuid, u, err, time.Now())
 		s.mu.Unlock()
 	}
 
@@ -305,7 +273,7 @@ func (s *switcher) check(ctx context.Context) (string, func() error) {
 // lastChat is when a chat was last active. Callers hold s.mu.
 func (s *switcher) autoTarget(running bool, lastChat, now time.Time) (*Account, switchCause) {
 	cur := s.account(s.active)
-	if !running || cur == nil || cur.Usage == nil || now.Sub(cur.Usage.CheckedAt) > activeFresh || now.Sub(s.st.LastSwitch) < autoCooldown {
+	if !running || cur == nil || cur.Usage == nil || cur.Problem != "" || now.Sub(cur.Usage.CheckedAt) > activeFresh || now.Sub(s.st.LastSwitch) < autoCooldown {
 		return nil, byHand
 	}
 	if s.st.AutoSwitch && cur.Usage.current(now).peak() >= s.st.Threshold {

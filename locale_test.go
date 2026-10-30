@@ -58,7 +58,7 @@ func TestUsageTextBothLanguages(t *testing.T) {
 				t.Fatalf("got %q, want %q", got, tc.want)
 			}
 			a := Account{Problem: signedOutMessage}
-			if got, want := usageText(a, 96, now), tr(signedOutMessage, "登录已失效，请重新添加账号"); got != want {
+			if got, want := usageText(a, 96, now), tr(usageUnverifiedMessage, "用量授权待验证"); got != want {
 				t.Fatalf("persisted problem = %q, want %q", got, want)
 			}
 		})
