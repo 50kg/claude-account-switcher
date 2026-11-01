@@ -56,7 +56,7 @@ func TestUsageRateLimitPersistsAndRecovers(t *testing.T) {
 		t.Fatalf("account was not retried when the deadline elapsed: %+v", jobs)
 	}
 	reloaded.recordUsageResult("a", nil, errUsageUnauthorized, now.Add(time.Hour))
-	if got := reloaded.account("a"); got.Problem != usageUnauthorizedMessage || !got.UsageRetryAt.IsZero() {
+	if got := reloaded.account("a"); got.Problem != usageUnauthorizedMessage || !got.UsageRetryAt.Equal(now.Add(time.Hour+usageAuthRetryMin)) {
 		t.Fatalf("HTTP 401 was confused with the previous rate limit: %+v", got)
 	}
 	reloaded.recordUsageResult("a", nil, &rateLimited{after: 2 * time.Minute}, now.Add(time.Hour))
@@ -80,6 +80,7 @@ func TestUsageFailuresHaveDistinctStates(t *testing.T) {
 		want string
 	}{
 		{"unauthorized", fmt.Errorf("wrapped: %w", errUsageUnauthorized), usageUnauthorizedMessage},
+		{"forbidden", errUsageForbidden, usageForbiddenMessage},
 		{"expired local token", errUsageTokenExpired, usageTokenExpiredMessage},
 		{"missing scoped token", errUsageTokenUnavailable, usageTokenMissingMessage},
 		{"timeout", context.DeadlineExceeded, usageFailedMessage},
@@ -150,7 +151,8 @@ func TestUsageStatusRenderingBothLanguages(t *testing.T) {
 		{usageLimitedMessage, 90 * time.Second, "usage check rate limited, retry in about 2 min", "用量查询受限，约2分钟后重试"},
 		{usageLimitedMessage, 45 * time.Second, "usage check rate limited, retry in 45 s", "用量查询受限，45秒后重试"},
 		{usageLimitedMessage, -time.Second, "usage check rate limited, waiting to retry", "用量查询受限，等待重试"},
-		{usageUnauthorizedMessage, 0, "usage authorization rejected (401); check sign-in in Claude", "用量授权被拒绝（401），请在 Claude 中确认登录"},
+		{usageUnauthorizedMessage, 0, "usage authorization rejected (401), waiting to retry", "用量授权被拒绝（401），等待重试"},
+		{usageForbiddenMessage, 0, "usage permission denied (403), waiting to retry", "用量权限不足（403），等待重试"},
 		{usageTokenExpiredMessage, 0, "usage token expired; check sign-in in Claude", "用量凭证已过期，请在 Claude 中确认登录"},
 		{usageTokenMissingMessage, 0, "usage token unavailable; check sign-in in Claude", "用量凭证暂不可用，请在 Claude 中确认登录"},
 		{usageFailedMessage, 0, "usage check temporarily failed, waiting to retry", "用量查询暂时失败，等待重试"},

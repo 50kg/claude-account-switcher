@@ -12,6 +12,7 @@ const (
 	usageUnverifiedMessage   = "usage access needs checking"
 	usageLimitedMessage      = "usage check rate limited"
 	usageUnauthorizedMessage = "usage authorization rejected (401)"
+	usageForbiddenMessage    = "usage permission denied (403)"
 	usageTokenExpiredMessage = "usage token expired"
 	usageTokenMissingMessage = "usage token unavailable"
 	usageFailedMessage       = "usage check temporarily failed"
@@ -51,6 +52,10 @@ func (s *switcher) usageJobs(active string, now time.Time) []usageJob {
 func (s *switcher) recordUsageResult(uuid string, u *Usage, err error, now time.Time) {
 	problem := ""
 	var retryAt time.Time
+	meta := s.usageCredentialState(uuid)
+	if s.backoff[uuid].After(meta.RetryAt) {
+		meta.RetryAt = s.backoff[uuid]
+	}
 	var limited *rateLimited
 	if errors.As(err, &limited) {
 		s.strikes[uuid]++
@@ -60,7 +65,6 @@ func (s *switcher) recordUsageResult(uuid string, u *Usage, err error, now time.
 			wait = min(activeEvery<<min(s.strikes[uuid]-1, 4), maxBackoff)
 		}
 		retryAt = now.Add(wait)
-		s.backoff[uuid] = retryAt
 		problem = usageLimitedMessage
 		log.Printf("usage %s: rate limited, next try in %s", uuid[:min(len(uuid), 8)], wait)
 	} else {
@@ -68,8 +72,16 @@ func (s *switcher) recordUsageResult(uuid string, u *Usage, err error, now time.
 		delete(s.strikes, uuid)
 		switch {
 		case err == nil:
+			meta.AuthFailures = 0
+			meta.LastRejection = 0
 		case errors.Is(err, errUsageUnauthorized):
 			problem = usageUnauthorizedMessage
+			meta.AuthFailures++
+			retryAt = now.Add(min(usageAuthRetryMin<<min(meta.AuthFailures-1, 3), maxBackoff))
+		case errors.Is(err, errUsageForbidden):
+			problem = usageForbiddenMessage
+			meta.AuthFailures++
+			retryAt = now.Add(min(usageAuthRetryMin<<min(meta.AuthFailures-1, 3), maxBackoff))
 		case errors.Is(err, errUsageTokenExpired):
 			problem = usageTokenExpiredMessage
 		case errors.Is(err, errUsageTokenUnavailable):
@@ -80,6 +92,15 @@ func (s *switcher) recordUsageResult(uuid string, u *Usage, err error, now time.
 		if err != nil {
 			log.Printf("usage %s: %v", uuid[:min(len(uuid), 8)], err)
 		}
+	}
+	// A later result must not shorten a server wait already recorded for this
+	// account. The working credential and rejected hashes survive success.
+	if meta.RetryAt.After(now) && meta.RetryAt.After(retryAt) {
+		retryAt = meta.RetryAt
+	}
+	meta.RetryAt = retryAt
+	if retryAt.After(now) {
+		s.backoff[uuid] = retryAt
 	}
 	if a := s.account(uuid); a != nil {
 		a.Problem, a.UsageRetryAt = problem, retryAt
@@ -94,17 +115,11 @@ func usageProblemText(a Account, now time.Time) string {
 	case signedOutMessage, usageUnverifiedMessage:
 		return tr(usageUnverifiedMessage, "用量授权待验证")
 	case usageLimitedMessage:
-		if remaining := a.UsageRetryAt.Sub(now); remaining > 0 {
-			if remaining >= time.Minute {
-				minutes := int((remaining + time.Minute - 1) / time.Minute)
-				return fmt.Sprintf(tr("usage check rate limited, retry in about %d min", "用量查询受限，约%d分钟后重试"), minutes)
-			}
-			seconds := int((remaining + time.Second - 1) / time.Second)
-			return fmt.Sprintf(tr("usage check rate limited, retry in %d s", "用量查询受限，%d秒后重试"), seconds)
-		}
-		return tr("usage check rate limited, waiting to retry", "用量查询受限，等待重试")
+		return tr("usage check rate limited", "用量查询受限") + usageRetrySuffix(a.UsageRetryAt, now)
 	case usageUnauthorizedMessage:
-		return tr("usage authorization rejected (401); check sign-in in Claude", "用量授权被拒绝（401），请在 Claude 中确认登录")
+		return tr("usage authorization rejected (401)", "用量授权被拒绝（401）") + usageRetrySuffix(a.UsageRetryAt, now)
+	case usageForbiddenMessage:
+		return tr("usage permission denied (403)", "用量权限不足（403）") + usageRetrySuffix(a.UsageRetryAt, now)
 	case usageTokenExpiredMessage:
 		return tr("usage token expired; check sign-in in Claude", "用量凭证已过期，请在 Claude 中确认登录")
 	case usageTokenMissingMessage:
@@ -114,4 +129,23 @@ func usageProblemText(a Account, now time.Time) string {
 	default:
 		return a.Problem
 	}
+}
+
+func usageRetrySuffix(at, now time.Time) string {
+	remaining := at.Sub(now)
+	if remaining <= 0 {
+		return tr(", waiting to retry", "，等待重试")
+	}
+	if remaining >= time.Minute {
+		minutes := int(remaining / time.Minute)
+		if remaining%time.Minute != 0 {
+			minutes++
+		}
+		return fmt.Sprintf(tr(", retry in about %d min", "，约%d分钟后重试"), minutes)
+	}
+	seconds := int(remaining / time.Second)
+	if remaining%time.Second != 0 {
+		seconds++
+	}
+	return fmt.Sprintf(tr(", retry in %d s", "，%d秒后重试"), seconds)
 }

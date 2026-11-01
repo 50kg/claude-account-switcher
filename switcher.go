@@ -65,6 +65,8 @@ type State struct {
 	NoUpdateCheck bool      `json:"noUpdateCheck,omitempty"`
 	UpdateChecked time.Time `json:"updateChecked,omitempty"`
 	LatestVersion string    `json:"latestVersion,omitempty"`
+	// Only credential fingerprints and retry metadata, never token values.
+	UsageCredentials map[string]*usageCredentialState `json:"usageCredentials,omitempty"`
 }
 
 // switchCause says why a switch happened.
@@ -142,6 +144,11 @@ func newSwitcher(dir string) *switcher {
 			s.backoff[a.UUID] = a.UsageRetryAt
 		}
 	}
+	for uuid, meta := range s.st.UsageCredentials {
+		if meta != nil && meta.RetryAt.After(s.backoff[uuid]) {
+			s.backoff[uuid] = meta.RetryAt
+		}
+	}
 	return s
 }
 
@@ -180,18 +187,24 @@ func (s *switcher) account(uuid string) *Account {
 	return nil
 }
 
-// tokenFor returns an access token for an account: from the app's live config
-// when it is signed in, otherwise from its saved profile.
-func (s *switcher) tokenFor(uuid, active string) (string, error) {
+// credentialsFor only reads the app's existing desktop credentials. It never
+// refreshes a token or reads the separate Claude Code credential store.
+func (s *switcher) credentialsFor(uuid, active string) ([]usageCredential, error) {
 	path := filepath.Join(s.profileDir(uuid), "config.json")
 	if uuid == active {
 		path = s.app().configPath()
 	}
 	cache, err := tokenCacheOf(path)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return accessToken(cache, uuid)
+	s.mu.Lock()
+	org := ""
+	if a := s.account(uuid); a != nil {
+		org = a.Org
+	}
+	s.mu.Unlock()
+	return desktopUsageCredentials(cache, uuid, org)
 }
 
 // refresh notices sign-ins, keeps usage current and runs the auto switch.
@@ -224,14 +237,11 @@ func (s *switcher) check(ctx context.Context) (string, func() error) {
 
 	added := false
 	for _, j := range jobs {
-		token, err := s.tokenFor(j.uuid, active)
+		credentials, err := s.credentialsFor(j.uuid, active)
 		var p profile
 		var u *Usage
-		if err == nil && j.new {
-			p, err = fetchProfile(ctx, token)
-		}
 		if err == nil {
-			u, err = fetchUsage(ctx, token)
+			p, u, err = s.queryUsageCandidates(ctx, j.uuid, credentials, j.new)
 		}
 
 		s.mu.Lock()

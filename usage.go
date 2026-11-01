@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -86,6 +85,8 @@ func apiGet(ctx context.Context, token, path string, out any) error {
 		return json.NewDecoder(res.Body).Decode(out)
 	case http.StatusUnauthorized:
 		return errUsageUnauthorized
+	case http.StatusForbidden:
+		return errUsageForbidden
 	case http.StatusTooManyRequests:
 		return &rateLimited{after: retryAfter(res.Header.Get("Retry-After"), time.Now())}
 	}
@@ -94,6 +95,7 @@ func apiGet(ctx context.Context, token, path string, out any) error {
 
 var (
 	errUsageUnauthorized     = errors.New("usage authorization rejected (HTTP 401)")
+	errUsageForbidden        = errors.New("usage permission denied (HTTP 403)")
 	errUsageTokenExpired     = errors.New("usage token expired")
 	errUsageTokenUnavailable = errors.New("no usable token with the usage scope")
 )
@@ -145,51 +147,4 @@ func fetchUsage(ctx context.Context, token string) (*Usage, error) {
 		u.WeeklyReset, _ = time.Parse(time.RFC3339Nano, w.ResetsAt)
 	}
 	return u, nil
-}
-
-// accessToken decrypts a saved oauth:tokenCacheV2 value and returns an
-// unexpired token of the account that may read its profile and usage.
-// Cache keys look like "acct:<account>|<client>:<org>:<audience>:<scopes>".
-func accessToken(cacheValue, account string) (string, error) {
-	data, err := base64.StdEncoding.DecodeString(cacheValue)
-	if err != nil {
-		return "", err
-	}
-	plain, err := decryptValue(data)
-	if err != nil {
-		return "", err
-	}
-	return tokenFromCache(plain, account, time.Now().UnixMilli())
-}
-
-// tokenFromCache only inspects the supplied cache; tests use synthetic data.
-func tokenFromCache(plain []byte, account string, now int64) (string, error) {
-	var cache map[string]struct {
-		Token     string `json:"token"`
-		ExpiresAt int64  `json:"expiresAt"`
-	}
-	if err := json.Unmarshal(plain, &cache); err != nil {
-		return "", err
-	}
-	best, bestExp := "", int64(0)
-	hadToken := false
-	for k, v := range cache {
-		if !strings.HasPrefix(k, "acct:"+account+"|") || !strings.Contains(k, "user:profile") {
-			continue
-		}
-		if v.Token == "" {
-			continue
-		}
-		hadToken = true
-		if v.ExpiresAt > now && v.ExpiresAt > bestExp {
-			best, bestExp = v.Token, v.ExpiresAt
-		}
-	}
-	if best == "" {
-		if hadToken {
-			return "", errUsageTokenExpired
-		}
-		return "", errUsageTokenUnavailable
-	}
-	return best, nil
 }

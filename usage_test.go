@@ -84,18 +84,22 @@ func TestTokenCacheDistinguishesExpiryAndMissingScope(t *testing.T) {
 		want  string
 		err   error
 	}{
-		{"expired", map[string]any{"acct:a|user:profile": entry("synthetic-old", 999)}, "", errUsageTokenExpired},
-		{"other account", map[string]any{"acct:b|user:profile": entry("synthetic-other", 2000)}, "", errUsageTokenUnavailable},
-		{"wrong scope", map[string]any{"acct:a|other-scope": entry("synthetic-other", 2000)}, "", errUsageTokenUnavailable},
-		{"empty", map[string]any{"acct:a|user:profile": entry("", 2000)}, "", errUsageTokenUnavailable},
-		{"valid", map[string]any{"acct:a|user:profile": entry("synthetic-valid", 2000), "acct:a|second:user:profile": entry("synthetic-newer", 3000), "acct:a|empty:user:profile": entry("", 4000)}, "synthetic-newer", nil},
+		{"expired", map[string]any{"acct:a|client:org:https://api.anthropic.com:user:profile": entry("synthetic-old", 999)}, "", errUsageTokenExpired},
+		{"other account", map[string]any{"acct:b|client:org:https://api.anthropic.com:user:profile": entry("synthetic-other", 2000)}, "", errUsageTokenUnavailable},
+		{"wrong scope", map[string]any{"acct:a|client:org:https://api.anthropic.com:other-scope": entry("synthetic-other", 2000)}, "", errUsageTokenUnavailable},
+		{"empty", map[string]any{"acct:a|client:org:https://api.anthropic.com:user:profile": entry("", 2000)}, "", errUsageTokenUnavailable},
+		{"valid", map[string]any{"acct:a|first:org:https://api.anthropic.com:user:profile": entry("synthetic-valid", 2000), "acct:a|second:org:https://api.anthropic.com:user:profile": entry("synthetic-newer", 3000), "acct:a|empty:org:https://api.anthropic.com:user:profile": entry("", 4000)}, "synthetic-newer", nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			data, err := json.Marshal(tc.cache)
 			if err != nil {
 				t.Fatal(err)
 			}
-			got, err := tokenFromCache(data, "a", now)
+			candidates, err := usageCredentialsFromCache(data, "a", "org", now)
+			got := ""
+			if len(candidates) != 0 {
+				got = candidates[0].token
+			}
 			if got != tc.want || !errors.Is(err, tc.err) || errors.Is(err, errUsageUnauthorized) {
 				t.Fatalf("cached token classification = %q, %v; want %q, %v", got, err, tc.want, tc.err)
 			}
