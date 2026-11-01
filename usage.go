@@ -15,11 +15,12 @@ const apiBase = "https://api.anthropic.com"
 
 // Usage is an account's plan usage in percent, as the app shows it.
 type Usage struct {
-	Session      float64   `json:"session"`
-	SessionReset time.Time `json:"sessionReset"`
-	Weekly       float64   `json:"weekly"`
-	WeeklyReset  time.Time `json:"weeklyReset"`
-	CheckedAt    time.Time `json:"checkedAt"`
+	Session      float64            `json:"session"`
+	SessionReset time.Time          `json:"sessionReset"`
+	Weekly       float64            `json:"weekly"`
+	WeeklyReset  time.Time          `json:"weeklyReset"`
+	ModelWeekly  []ModelWeeklyUsage `json:"modelWeekly,omitempty"`
+	CheckedAt    time.Time          `json:"checkedAt"`
 }
 
 // peak is the fuller of the two limits.
@@ -33,6 +34,13 @@ func (u Usage) current(now time.Time) Usage {
 	}
 	if !c.WeeklyReset.IsZero() && now.After(c.WeeklyReset) {
 		c.Weekly = 0
+	}
+	// A snapshot must not change the persisted model counters through a slice.
+	c.ModelWeekly = append([]ModelWeeklyUsage(nil), u.ModelWeekly...)
+	for i := range c.ModelWeekly {
+		if at := c.ModelWeekly[i].ResetsAt; !at.IsZero() && !now.Before(at) {
+			c.ModelWeekly[i].Percent = 0
+		}
 	}
 	return c
 }
@@ -131,8 +139,10 @@ func fetchUsage(ctx context.Context, token string) (*Usage, error) {
 		ResetsAt    string  `json:"resets_at"`
 	}
 	var body struct {
-		FiveHour *window `json:"five_hour"`
-		SevenDay *window `json:"seven_day"`
+		FiveHour           *window         `json:"five_hour"`
+		SevenDay           *window         `json:"seven_day"`
+		Limits             json.RawMessage `json:"limits"`
+		WeeklyScopedShares json.RawMessage `json:"weekly_scoped_shares"`
 	}
 	if err := apiGet(ctx, token, "/api/oauth/usage", &body); err != nil {
 		return nil, err
@@ -146,5 +156,6 @@ func fetchUsage(ctx context.Context, token string) (*Usage, error) {
 		u.Weekly = w.Utilization
 		u.WeeklyReset, _ = time.Parse(time.RFC3339Nano, w.ResetsAt)
 	}
+	u.ModelWeekly = modelWeeklyUsage(body.Limits, body.WeeklyScopedShares)
 	return u, nil
 }

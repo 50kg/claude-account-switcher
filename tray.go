@@ -16,18 +16,19 @@ const maxAccounts = 8
 var thresholds = []float64{90, 94, 96, 98}
 
 type tray struct {
-	s          *switcher
-	status     *systray.MenuItem
-	update     *systray.MenuItem
-	accounts   [maxAccounts]*systray.MenuItem
-	auto       *systray.MenuItem
-	spend      *systray.MenuItem
-	thresholds []*systray.MenuItem
-	add        *systray.MenuItem
-	importNow  *systray.MenuItem
-	autostart  *systray.MenuItem
-	lastIcon   string
-	updates    chan struct{}
+	s           *switcher
+	status      *systray.MenuItem
+	modelNotice *systray.MenuItem
+	update      *systray.MenuItem
+	accounts    [maxAccounts]*systray.MenuItem
+	auto        *systray.MenuItem
+	spend       *systray.MenuItem
+	thresholds  []*systray.MenuItem
+	add         *systray.MenuItem
+	importNow   *systray.MenuItem
+	autostart   *systray.MenuItem
+	lastIcon    string
+	updates     chan struct{}
 }
 
 func (t *tray) onReady() {
@@ -37,6 +38,9 @@ func (t *tray) onReady() {
 	t.status = systray.AddMenuItem("", "")
 	t.status.Disable()
 	t.status.Hide()
+	t.modelNotice = systray.AddMenuItem("", "")
+	t.modelNotice.Disable()
+	t.modelNotice.Hide()
 	_, updateTip := updateMenuText("")
 	t.update = systray.AddMenuItem("", updateTip)
 	t.update.Hide()
@@ -180,6 +184,7 @@ func (t *tray) render() {
 	}
 
 	activePct := -1.0
+	modelNotice := ""
 	tip := tr("Claude Account Switcher", "Claude 账号切换器")
 	for i, item := range t.accounts {
 		if i >= len(snap.Accounts) {
@@ -197,11 +202,18 @@ func (t *tray) render() {
 		}
 		item.Show()
 		if a.UUID == snap.Active {
-			tip = a.label() + "\n" + detail
+			tip = accountTooltip(a, snap.Threshold, now)
+			modelNotice = modelWeeklyNotice(a, now)
 			if a.Usage != nil {
 				activePct = a.Usage.current(now).Session
 			}
 		}
+	}
+	if modelNotice == "" {
+		t.modelNotice.Hide()
+	} else {
+		t.modelNotice.SetTitle(modelNotice)
+		t.modelNotice.Show()
 	}
 	systray.SetTooltip(tip)
 	t.setIcon(activePct, snap.Threshold)
@@ -234,6 +246,9 @@ func usageText(a Account, threshold float64, now time.Time) string {
 	}
 	u := a.Usage.current(now)
 	parts := []string{fmt.Sprintf(tr("5h %.0f%%", "5小时 %.0f%%"), u.Session), fmt.Sprintf(tr("week %.0f%%", "每周 %.0f%%"), u.Weekly)}
+	if len(u.ModelWeekly) > 0 {
+		parts[1] = fmt.Sprintf(tr("total week %.0f%%", "总周 %.0f%%"), u.Weekly)
+	}
 	if u.Session >= threshold && !u.SessionReset.IsZero() {
 		parts[0] += tr(" until ", "，重置于 ") + resetText(u.SessionReset, now)
 	}
@@ -244,6 +259,9 @@ func usageText(a Account, threshold float64, now time.Time) string {
 			prefix = tr(" until ", "，重置于 ")
 		}
 		parts[1] += prefix + resetText(u.WeeklyReset, now)
+	}
+	for _, model := range u.ModelWeekly {
+		parts = append(parts, modelWeeklyText(model, freshModelUsage(a, now), now))
 	}
 	text := strings.Join(parts, " · ")
 	if problem != "" {

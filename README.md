@@ -52,6 +52,8 @@ Three of those four steps are pure overhead, and the fourth is a guess.
 
 **Shows usage for all accounts at once.** 5-hour and weekly usage for every saved account, live, with when each weekly limit resets and the 5-hour reset once that limit is close. The tray icon is a ring that fills with the active account's 5-hour usage: green, orange from 75%, red at your switch threshold.
 
+**Separates model weekly caps.** When the usage response includes model-specific caps such as Fable, the account menu shows total weekly usage and each model's own percentage, reset time and share of the total weekly allowance. A model using 41% of the total week with a 50% cap has used 82% of its own allowance. Model names and values come from the existing usage request; accounts without model data keep the original display. At 75% the menu and active-account tooltip say "near limit"; at 100% they say "limit reached". The active account also gets a read-only warning row. Alerts use fresh successful data; failed queries label cached values as last known. Model caps do not change automatic switching, expiring-weekly selection, polling frequency or the tray ring.
+
 **Can switch on its own.** Off by default. Turn it on and the switcher moves Claude to the account with the most room left once the active one passes 96% (or 90, 94, 98, your choice). A second toggle moves it to an account whose weekly limit is about to reset mostly unused, so that usage is not lost.
 
 ## Measured
