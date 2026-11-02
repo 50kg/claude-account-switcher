@@ -135,28 +135,71 @@ func modelWeeklyNotice(a Account, now time.Time) string {
 	return "⚠ " + strings.Join(notices, " · ")
 }
 
-// Windows bounds the tray tooltip. Put model warnings before long reset dates
-// and cap descriptions, which remain fully available in the account menu.
-func accountTooltip(a Account, threshold float64, now time.Time) string {
-	row := quotaPanelView(snapshot{Accounts: []Account{a}, Active: a.UUID}, false, now).Accounts[0]
-	parts := make([]string, 0, len(row.Meters))
-	for _, meter := range row.Meters {
-		value := "—"
-		if meter.Remaining != nil {
-			value = fmt.Sprintf("%.0f%%", *meter.Remaining)
+// Keep remaining allowance readable in Windows' bounded tray tooltip.
+// This formatter only uses the cached account snapshot, without a window.
+func accountTooltip(a Account, _ float64, now time.Time) string {
+	fresh := freshModelUsage(a, now)
+	parts := []string{tr("5h —", "5小时 —"), tr("Total week —", "总周 —")}
+	var empty, low string
+	if a.Usage != nil {
+		parts = nil
+		add := func(name string, used float64) {
+			parts = append(parts, name+" "+remainingPercentText(used))
+			if !fresh || !validQuotaPercent(used) {
+				return
+			}
+			if used >= 100 && empty == "" {
+				empty = name
+			} else if used >= warnAt && low == "" {
+				low = name
+			}
 		}
-		parts = append(parts, meter.Name+" "+value)
+		u := a.Usage.current(now)
+		add(tr("5h", "5小时"), u.Session)
+		add(tr("Total week", "总周"), u.Weekly)
+		for _, model := range u.ModelWeekly {
+			add(fmt.Sprintf(tr("%s week", "%s周"), model.Name), model.Percent)
+		}
 	}
 	prefix := tr("Remaining: ", "剩余：")
-	if !row.Fresh {
+	if !fresh {
 		prefix = tr("Last known remaining: ", "上次剩余：")
 	}
 	tip := a.label() + "\n" + prefix + strings.Join(parts, " · ")
-	if row.Tone == "low" || row.Tone == "empty" {
-		tip += "\n" + row.Status
+	if empty != "" {
+		tip += "\n" + fmt.Sprintf(tr("%s limit reached", "%s已用尽"), empty)
+	} else if low != "" {
+		tip += "\n" + fmt.Sprintf(tr("%s running low", "%s余量偏低"), low)
 	}
-	if row.Problem != "" {
-		tip += "\n" + row.Problem
+	if problem := usageProblemText(a, now); problem != "" {
+		tip += "\n" + problem
 	}
 	return tip
+}
+
+func remainingPercentText(used float64) string {
+	if !validQuotaPercent(used) {
+		return "—"
+	}
+	return fmt.Sprintf("%.0f%%", math.Max(0, 100-used))
+}
+
+func compactRemainingText(a Account, now time.Time) string {
+	if problem := usageProblemText(a, now); problem != "" {
+		return problem
+	}
+	if a.Usage == nil {
+		return tr("Waiting for usage", "等待用量更新")
+	}
+	u := a.Usage.current(now)
+	parts := []string{fmt.Sprintf(tr("5h left %s", "5小时余%s"), remainingPercentText(u.Session)),
+		fmt.Sprintf(tr("week left %s", "总周余%s"), remainingPercentText(u.Weekly))}
+	for _, model := range u.ModelWeekly {
+		parts = append(parts, fmt.Sprintf(tr("%s left %s", "%s余%s"), model.Name, remainingPercentText(model.Percent)))
+	}
+	text := strings.Join(parts, " · ")
+	if !freshModelUsage(a, now) {
+		return tr("Last known: ", "上次：") + text
+	}
+	return text
 }

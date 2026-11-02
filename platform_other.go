@@ -3,11 +3,8 @@
 package main
 
 import (
-	"bufio"
 	"errors"
-	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"time"
 )
@@ -44,8 +41,3 @@ func nativeResume(titles []string, _ time.Duration) []bool {
 }
 
 func showWebDialog(string, int) ([]bool, error) { return nil, errUnsupported }
-
-func preparePanelCommand(*exec.Cmd)                                {}
-func allowPanelForeground(int)                                     {}
-func confirmAccountSwitch(string) bool                             { return false }
-func showQuotaPanel(panelMessage, *bufio.Scanner, io.Writer) error { return errUnsupported }

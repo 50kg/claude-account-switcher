@@ -19,11 +19,6 @@ import (
 const version = "0.3.6"
 
 func main() {
-	// The quota window only consumes presentation data from its parent's pipe.
-	// It must branch before logging, state loading or any Claude discovery.
-	if len(os.Args) == 2 && os.Args[1] == panelFlag {
-		os.Exit(runQuotaPanel())
-	}
 	// The dialog process started by askInDialogProcess.
 	if len(os.Args) == 2 && os.Args[1] == resumeFlag {
 		os.Exit(runResumeDialog())
@@ -73,11 +68,7 @@ func main() {
 		}
 		systray.Quit()
 	})
-	systray.Run(t.onReady, func() {
-		if t.panel != nil {
-			t.panel.close()
-		}
-	})
+	systray.Run(t.onReady, func() {})
 }
 
 // setupLog writes to switcher.log and starts it over once it passes 1 MB.

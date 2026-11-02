@@ -18,11 +18,9 @@ var thresholds = []float64{90, 94, 96, 98}
 type tray struct {
 	s           *switcher
 	status      *systray.MenuItem
-	panel       *quotaPanel
+	modelNotice *systray.MenuItem
 	update      *systray.MenuItem
 	accounts    [maxAccounts]*systray.MenuItem
-	detailItems [maxAccounts]*systray.MenuItem
-	switchItems [maxAccounts]*systray.MenuItem
 	auto        *systray.MenuItem
 	spend       *systray.MenuItem
 	thresholds  []*systray.MenuItem
@@ -40,15 +38,14 @@ func (t *tray) onReady() {
 	t.status = systray.AddMenuItem("", "")
 	t.status.Disable()
 	t.status.Hide()
-	viewQuota := systray.AddMenuItem(tr("View account quotas…", "查看额度面板…"), tr("Read remaining allowance without switching accounts", "查看剩余额度，不切换账号"))
+	t.modelNotice = systray.AddMenuItem("", "")
+	t.modelNotice.Disable()
+	t.modelNotice.Hide()
 	_, updateTip := updateMenuText("")
 	t.update = systray.AddMenuItem("", updateTip)
 	t.update.Hide()
 	for i := range t.accounts {
-		t.accounts[i] = systray.AddMenuItemCheckbox("", tr("View this account's quota details", "查看此账号的额度详情"), false)
-		// Windows must attach children while the parent exists in its menu.
-		t.detailItems[i] = t.accounts[i].AddSubMenuItem(tr("View quota details…", "查看额度详情…"), "")
-		t.switchItems[i] = t.accounts[i].AddSubMenuItem(tr("Switch to this account…", "切换到此账号…"), tr("Confirm before restarting Claude", "确认后才会重启Claude"))
+		t.accounts[i] = systray.AddMenuItemCheckbox("", tr("Switch the Claude app to this account", "将 Claude 切换到此账号"), false)
 		t.accounts[i].Hide()
 	}
 	systray.AddSeparator()
@@ -71,37 +68,13 @@ func (t *tray) onReady() {
 	t.autostart = systray.AddMenuItemCheckbox(tr("Start at login", "开机启动"), "", autostartEnabled())
 	folder := systray.AddMenuItem(tr("Open data folder", "打开数据文件夹"), "")
 	quit := systray.AddMenuItem(tr("Quit", "退出"), "")
-	t.panel = &quotaPanel{
-		view:     func() panelView { return quotaPanelView(t.s.snapshot(), autostartEnabled(), time.Now()) },
-		onAction: t.handlePanelAction,
-		onError:  t.s.setStatus,
-	}
-	systray.SetOnTapped(func() { go t.panel.show("") })
-	go func() {
-		for range viewQuota.ClickedCh {
-			t.panel.show("")
-		}
-	}()
 
 	for i, item := range t.accounts {
-		details, switchItem := t.detailItems[i], t.switchItems[i]
 		go func() {
-			for {
-				select {
-				case <-item.ClickedCh:
-				case <-details.ClickedCh:
-				case <-switchItem.ClickedCh:
-					snap := t.s.snapshot()
-					if i < len(snap.Accounts) && snap.Accounts[i].UUID != snap.Active && !snap.Busy && confirmAccountSwitch(snap.Accounts[i].label()) {
-						if err := t.handlePanelAction(panelAction{Type: "switch", Account: snap.Accounts[i].UUID, Active: snap.Active, Confirmed: true}); err != nil {
-							t.s.setStatus(err.Error())
-						}
-					}
-					continue
-				}
+			for range item.ClickedCh {
 				snap := t.s.snapshot()
-				if i < len(snap.Accounts) {
-					t.panel.show(snap.Accounts[i].UUID)
+				if i < len(snap.Accounts) && snap.Accounts[i].UUID != snap.Active {
+					go t.s.run(tr("Switch", "切换账号"), func() error { return t.s.switchTo(snap.Accounts[i].UUID, byHand) })
 				}
 				t.s.onChange()
 			}
@@ -211,6 +184,7 @@ func (t *tray) render() {
 	}
 
 	activePct := -1.0
+	modelNotice := ""
 	tip := tr("Claude Account Switcher", "Claude 账号切换器")
 	for i, item := range t.accounts {
 		if i >= len(snap.Accounts) {
@@ -226,18 +200,20 @@ func (t *tray) render() {
 		} else {
 			item.Enable()
 		}
-		if snap.Busy || a.UUID == snap.Active {
-			t.switchItems[i].Disable()
-		} else {
-			t.switchItems[i].Enable()
-		}
 		item.Show()
 		if a.UUID == snap.Active {
 			tip = accountTooltip(a, snap.Threshold, now)
+			modelNotice = modelWeeklyNotice(a, now)
 			if a.Usage != nil {
 				activePct = a.Usage.current(now).Session
 			}
 		}
+	}
+	if modelNotice == "" {
+		t.modelNotice.Hide()
+	} else {
+		t.modelNotice.SetTitle(modelNotice)
+		t.modelNotice.Show()
 	}
 	systray.SetTooltip(tip)
 	t.setIcon(activePct, snap.Threshold)
@@ -254,40 +230,6 @@ func (t *tray) render() {
 			item.Enable()
 		}
 	}
-	if t.panel != nil {
-		t.panel.update()
-	}
-}
-
-func (t *tray) handlePanelAction(action panelAction) error {
-	if err := validatePanelAction(action, t.s.snapshot()); err != nil {
-		return err
-	}
-	switch action.Type {
-	case "switch":
-		t.s.run(tr("Switch", "切换账号"), func() error { return t.s.switchTo(action.Account, byHand) })
-	case "add":
-		t.s.run(tr("Add account", "添加账号"), t.s.addAccount)
-	case "import":
-		t.s.run(tr("Import", "导入聊天"), t.s.importChats)
-	case "auto":
-		t.s.setAuto(action.Enabled)
-	case "spend":
-		t.s.setSpendWeekly(action.Enabled)
-	case "threshold":
-		t.s.setThreshold(action.Threshold)
-	case "autostart":
-		if err := setAutostart(action.Enabled); err != nil {
-			return err
-		}
-		setChecked(t.autostart, autostartEnabled())
-		t.s.onChange()
-	case "folder":
-		shellOpen(t.s.dir)
-	case "update":
-		t.s.requestUpdate(context.Background(), shellOpen)
-	}
-	return nil
 }
 
 // menuTab right-aligns the usage on Windows, where a tab in a menu title
