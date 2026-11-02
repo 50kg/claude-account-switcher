@@ -54,7 +54,11 @@
     return age(data.updatedAt);
   }
   function fit() {
-    requestAnimationFrame(() => {
+    // A newly created native WebView is hidden until its first size arrives.
+    // Hidden WebViews can suspend animation frames, so waiting for rAF here
+    // deadlocks startup: no frame -> no fit -> no show. Layout reads work in
+    // a microtask without requiring a visible rendering surface.
+    queueMicrotask(() => {
       const content = $('content');
       const child = content.firstElementChild;
       const height = Math.ceil($('title').closest('.panel-head').offsetHeight +
@@ -263,7 +267,9 @@
   $('settings').addEventListener('click',() => { mode = mode === 'quota' ? 'settings' : 'quota'; confirmation = null; render(); });
   $('manage').addEventListener('click',() => { mode = mode === 'quota' ? 'settings' : 'quota'; confirmation = null; render(); });
   window.addEventListener('keydown',event => { if (event.key === 'Escape') { if (confirmation) { confirmation = null; render(); } else if (mode === 'settings') { mode = 'quota'; render(); } else hide(); } });
-  window.addEventListener('blur',hide);
+  // DOM focus also changes during WebView startup and between native/browser
+  // controls. The native host owns outside-click dismissal; blur alone is
+  // not evidence that the user dismissed this window.
   document.querySelector('.panel').classList.add('opening');
   setTimeout(() => document.querySelector('.panel').classList.remove('opening'),320);
   setInterval(() => { $('updated').textContent = updatedText(); },30000);

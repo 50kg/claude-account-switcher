@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"strings"
@@ -43,6 +44,7 @@ type panelMessage struct {
 }
 
 type panelSession struct {
+	pid     int
 	input   io.WriteCloser
 	updates chan panelMessage
 	done    chan struct{}
@@ -68,6 +70,7 @@ func (p *quotaPanel) show(focus string) {
 	}
 	v := p.view()
 	if p.session != nil {
+		allowPanelForeground(p.session.pid)
 		p.enqueue(p.session, panelMessage{View: &v, Show: true, Focus: focus})
 		return
 	}
@@ -95,7 +98,9 @@ func (p *quotaPanel) show(focus string) {
 		p.onError(err.Error())
 		return
 	}
-	s := &panelSession{input: in, updates: make(chan panelMessage, 1), done: make(chan struct{})}
+	allowPanelForeground(cmd.Process.Pid)
+	log.Printf("quota panel: started window process %d", cmd.Process.Pid)
+	s := &panelSession{pid: cmd.Process.Pid, input: in, updates: make(chan panelMessage, 1), done: make(chan struct{})}
 	p.session = s
 	// Write the initial state before coalesced updates: the child must receive
 	// its language and data before constructing any native window.
@@ -307,7 +312,9 @@ func runPanelWebView(w panelWebView, initial panelMessage, scanner *bufio.Scanne
 				}
 			})
 		}
-		w.Terminate() // The tray exited or closed its pipe; do not leave an orphan.
+		// The Windows implementation posts WM_QUIT to its caller's thread.
+		// Dispatch onto the window thread instead of quitting this pipe reader.
+		w.Dispatch(w.Terminate)
 	}()
 	focus, _ := json.Marshal(initial.Focus)
 	w.Init("window.__panelInitialFocus = " + string(focus))

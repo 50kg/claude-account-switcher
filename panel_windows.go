@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"time"
 	"unsafe"
 
 	webview2 "github.com/jchv/go-webview2"
@@ -19,9 +20,58 @@ var (
 	procPanelShowWindow       = user32.NewProc("ShowWindow")
 	procPanelGetCursorPos     = user32.NewProc("GetCursorPos")
 	procPanelMonitorFromPoint = user32.NewProc("MonitorFromPoint")
+	procPanelForeground       = user32.NewProc("GetForegroundWindow")
+	procPanelAncestor         = user32.NewProc("GetAncestor")
+	procPanelKeyState         = user32.NewProc("GetAsyncKeyState")
+	procPanelVisible          = user32.NewProc("IsWindowVisible")
+	procPanelAllowForeground  = user32.NewProc("AllowSetForegroundWindow")
 )
 
 func preparePanelCommand(cmd *exec.Cmd) { hidden(cmd) }
+func allowPanelForeground(pid int) {
+	if pid > 0 {
+		procPanelAllowForeground.Call(uintptr(pid))
+	}
+}
+
+type nativePanelInput struct {
+	buttons                                uint8
+	inside, ownForeground, knownForeground bool
+}
+
+type nativePanelProbe struct {
+	visible func() bool
+	eval    func(string)
+	show    func()
+}
+
+type nativePanelOptions struct {
+	dataPath           string
+	suppressActivation bool
+	onShown            func(nativePanelProbe)
+	input              func(uintptr) nativePanelInput
+}
+
+func panelNativeInput(hwnd uintptr) nativePanelInput {
+	var point struct{ X, Y int32 }
+	var rect windows.Rect
+	procPanelGetCursorPos.Call(uintptr(unsafe.Pointer(&point)))
+	procGetWindowRect.Call(hwnd, uintptr(unsafe.Pointer(&rect)))
+	foreground, _, _ := procPanelForeground.Call()
+	root, _, _ := procPanelAncestor.Call(foreground, 2)
+	left, _, _ := procPanelKeyState.Call(1)
+	right, _, _ := procPanelKeyState.Call(2)
+	var buttons uint8
+	if left&0x8000 != 0 {
+		buttons |= 1
+	}
+	if right&0x8000 != 0 {
+		buttons |= 2
+	}
+	return nativePanelInput{buttons: buttons,
+		inside:        point.X >= rect.Left && point.X < rect.Right && point.Y >= rect.Top && point.Y < rect.Bottom,
+		ownForeground: foreground == hwnd || root == hwnd, knownForeground: foreground != 0}
+}
 
 // A native confirmed switch remains available even without WebView2.
 func confirmAccountSwitch(account string) bool {
@@ -38,15 +88,23 @@ func confirmAccountSwitch(account string) bool {
 }
 
 func showQuotaPanel(initial panelMessage, scanner *bufio.Scanner, output io.Writer) error {
+	return showQuotaPanelNative(initial, scanner, output, nativePanelOptions{})
+}
+
+func showQuotaPanelNative(initial panelMessage, scanner *bufio.Scanner, output io.Writer, options nativePanelOptions) error {
 	runtime.LockOSThread()
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
+	dataPath := options.dataPath
+	if dataPath == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return err
+		}
+		dataPath = filepath.Join(home, ".claude-account-switcher", "quota-panel-webview")
 	}
 	_ = os.Setenv("WEBVIEW2_DEFAULT_BACKGROUND_COLOR", "FFF8F9FB")
 	w := webview2.NewWithOptions(webview2.WebViewOptions{
-		DataPath:      filepath.Join(home, ".claude-account-switcher", "quota-panel-webview"),
-		AutoFocus:     true,
+		DataPath:      dataPath,
+		AutoFocus:     !options.suppressActivation,
 		WindowOptions: webview2.WindowOptions{Title: tr("Account quotas", "账号额度"), Width: 1, Height: 1},
 	})
 	if w == nil {
@@ -67,6 +125,12 @@ func showQuotaPanel(initial panelMessage, scanner *bufio.Scanner, output io.Writ
 	shown := false
 	fitted := false
 	height := 700
+	var dismissal panelDismissal
+	getInput := options.input
+	if getInput == nil {
+		getInput = panelNativeInput
+	}
+	notified := false
 	var currentMonitor uintptr
 	place := func() {
 		packed := uint64(uint32(anchor.X)) | uint64(uint32(anchor.Y))<<32
@@ -103,9 +167,28 @@ func showQuotaPanel(initial panelMessage, scanner *bufio.Scanner, output io.Writ
 		procPanelGetCursorPos.Call(uintptr(unsafe.Pointer(&anchor)))
 		place()
 		shown = true
-		procPanelShowWindow.Call(hwnd, 5)
-		procSetForegroundWindow.Call(hwnd)
+		dismissal.shown(time.Now(), getInput(hwnd).buttons)
+		if options.suppressActivation {
+			procPanelShowWindow.Call(hwnd, 4)
+		} else {
+			procPanelShowWindow.Call(hwnd, 5)
+			procSetForegroundWindow.Call(hwnd)
+		}
 		w.Eval("window.panelShown && window.panelShown()")
+		if !notified && options.onShown != nil {
+			notified = true
+			options.onShown(nativePanelProbe{
+				visible: func() bool { visible, _, _ := procPanelVisible.Call(hwnd); return visible != 0 },
+				eval:    func(js string) { w.Dispatch(func() { w.Eval(js) }) },
+				show: func() {
+					w.Dispatch(func() {
+						procPanelShowWindow.Call(hwnd, 4)
+						shown = true
+						dismissal.shown(time.Now(), getInput(hwnd).buttons)
+					})
+				},
+			})
+		}
 	}
 	hide := func() {
 		shown = false
@@ -125,5 +208,29 @@ func showQuotaPanel(initial panelMessage, scanner *bufio.Scanner, output io.Writ
 		}
 	}
 	place()
+	stop := make(chan struct{})
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		ticker := time.NewTicker(60 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				w.Dispatch(func() {
+					if !shown {
+						return
+					}
+					input := getInput(hwnd)
+					if dismissal.dismiss(time.Now(), input.buttons, input.inside, input.ownForeground, input.knownForeground) {
+						hide()
+					}
+				})
+			}
+		}
+	}()
+	defer func() { close(stop); <-stopped }()
 	return runPanelWebView(w, initial, scanner, output, fit, hide, show)
 }

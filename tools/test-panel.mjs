@@ -142,6 +142,8 @@ try {
   await check('empty state has no automatic login action',`!!document.querySelector('.empty-state')&&window.__calls.length===2`);
   await setView(view);
   await send('Emulation.setDeviceMetricsOverride',{width:424,height:720,deviceScaleFactor:2,mobile:false});
+  await evaluate(`window.panelShown();window.dispatchEvent(new Event('blur'));true`);
+  await check('browser focus transitions never dismiss the native panel',`window.__hidden===false&&window.__calls.length===2`);
   await evaluate(`window.panelShown();document.getElementById('close').click()`);
   await check('close only hides the quota window',`window.__hidden===true&&window.__calls.length===2`);
   assert.deepEqual(errors,[],'browser script errors');

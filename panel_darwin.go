@@ -11,6 +11,7 @@ import (
 )
 
 func preparePanelCommand(*exec.Cmd) {}
+func allowPanelForeground(int)      {}
 
 func confirmAccountSwitch(account string) bool {
 	const script = `on run argv
