@@ -138,19 +138,25 @@ func modelWeeklyNotice(a Account, now time.Time) string {
 // Windows bounds the tray tooltip. Put model warnings before long reset dates
 // and cap descriptions, which remain fully available in the account menu.
 func accountTooltip(a Account, threshold float64, now time.Time) string {
-	if a.Usage == nil || len(a.Usage.ModelWeekly) == 0 {
-		return a.label() + "\n" + usageText(a, threshold, now)
+	row := quotaPanelView(snapshot{Accounts: []Account{a}, Active: a.UUID}, false, now).Accounts[0]
+	parts := make([]string, 0, len(row.Meters))
+	for _, meter := range row.Meters {
+		value := "—"
+		if meter.Remaining != nil {
+			value = fmt.Sprintf("%.0f%%", *meter.Remaining)
+		}
+		parts = append(parts, meter.Name+" "+value)
 	}
-	u := a.Usage.current(now)
-	parts := []string{fmt.Sprintf(tr("5h %.0f%% · total week %.0f%%", "5小时 %.0f%% · 总周 %.0f%%"), u.Session, u.Weekly)}
-	for _, model := range u.ModelWeekly {
-		model.ResetsAt = time.Time{}
-		model.AllowancePercent = nil
-		parts = append(parts, modelWeeklyText(model, freshModelUsage(a, now), now))
+	prefix := tr("Remaining: ", "剩余：")
+	if !row.Fresh {
+		prefix = tr("Last known remaining: ", "上次剩余：")
 	}
-	detail := strings.Join(parts, " · ")
-	if problem := usageProblemText(a, now); problem != "" {
-		detail = problem + tr(" · last known: ", " · 上次用量：") + detail
+	tip := a.label() + "\n" + prefix + strings.Join(parts, " · ")
+	if row.Tone == "low" || row.Tone == "empty" {
+		tip += "\n" + row.Status
 	}
-	return a.label() + "\n" + detail
+	if row.Problem != "" {
+		tip += "\n" + row.Problem
+	}
+	return tip
 }

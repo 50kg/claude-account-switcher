@@ -29,7 +29,7 @@ func TestModelUsageDisplayAndWarningsBothLanguages(t *testing.T) {
 			if notice := modelWeeklyNotice(a, now); !strings.HasPrefix(notice, "⚠ ") || !strings.Contains(notice, "82%") {
 				t.Fatalf("warning not visible in dedicated notice: %q", notice)
 			}
-			if tip := accountTooltip(a, 96, now); !strings.Contains(tip, tr("near limit", "接近上限")) || strings.Contains(tip, resetText(now.Add(48*time.Hour), now)) {
+			if tip := accountTooltip(a, 96, now); !strings.Contains(tip, tr("running low", "余量偏低")) || !strings.Contains(tip, "18%") || strings.Contains(tip, resetText(now.Add(48*time.Hour), now)) {
 				t.Fatalf("compact tooltip lost the warning: %q", tip)
 			}
 			for _, tc := range []struct {
