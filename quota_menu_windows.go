@@ -258,8 +258,8 @@ type quotaMenuOverlay struct {
 type quotaMenuChoice struct {
 	Label             string
 	Checked, Disabled bool
+	Separator         bool
 	Action            quotaMenuAction
-	Popup             string
 }
 
 type quotaMenuWindow struct {
@@ -523,7 +523,9 @@ func (w *quotaMenuWindow) reload(show bool) {
 	if w.view.Status != "" {
 		w.bodyTop += 30
 	}
-	position := placeQuotaMenu(w.work, int(w.anchor.X), int(w.anchor.Y), w.scale(520), w.scale(w.bodyTop+min(w.contentHeight, quotaMenuMaxBodyHeight)+quotaMenuFooterHeight))
+	// The flat settings menu must also fit when no accounts have been added.
+	height := max(w.bodyTop+min(w.contentHeight, quotaMenuMaxBodyHeight)+quotaMenuFooterHeight, quotaChoicesHeight(w.choices("settings"))+16)
+	position := placeQuotaMenu(w.work, int(w.anchor.X), int(w.anchor.Y), w.scale(520), w.scale(height))
 	w.width = position.W * 96 / w.dpi
 	w.height = position.H * 96 / w.dpi
 	w.bodyBottom = w.height - quotaMenuFooterHeight
@@ -644,11 +646,17 @@ func (w *quotaMenuWindow) activate(hit quotaMenuHit) {
 func (w *quotaMenuWindow) choices(kind string) []quotaMenuChoice {
 	switch kind {
 	case "settings":
+		title, _ := updateMenuText(w.view.Update)
+		if title == "" {
+			title = tr("Check for updates", "检查更新")
+		}
 		return []quotaMenuChoice{
-			{Label: tr("Auto-switch when nearly full", "额度接近用尽时自动切换"), Checked: w.view.Auto, Action: quotaMenuAction{Kind: "auto", Enabled: !w.view.Auto}},
-			{Label: fmt.Sprintf(tr("Switch at %.0f%% used", "自动切换阈值：已用 %.0f%%"), w.view.Threshold), Popup: "threshold"},
 			{Label: tr("Use expiring weekly allowance", "优先使用即将重置的周额度"), Checked: w.view.Spend, Action: quotaMenuAction{Kind: "spend", Enabled: !w.view.Spend}},
 			{Label: tr("Start at login", "开机启动"), Checked: w.view.Startup, Action: quotaMenuAction{Kind: "autostart", Enabled: !w.view.Startup}},
+			{Separator: true},
+			{Label: tr("Import chats from all accounts…", "导入所有账号的聊天…"), Disabled: w.view.Busy, Action: quotaMenuAction{Kind: "import", Active: w.view.Active}},
+			{Label: tr("Open data folder", "打开数据文件夹"), Action: quotaMenuAction{Kind: "folder"}},
+			{Label: title, Action: quotaMenuAction{Kind: "update"}},
 		}
 	case "threshold":
 		var choices []quotaMenuChoice
@@ -656,18 +664,20 @@ func (w *quotaMenuWindow) choices(kind string) []quotaMenuChoice {
 			choices = append(choices, quotaMenuChoice{Label: fmt.Sprintf(tr("Switch at %.0f%% used", "已用 %.0f%% 时切换"), value), Checked: w.view.Threshold == value, Action: quotaMenuAction{Kind: "threshold", Threshold: value}})
 		}
 		return choices
-	case "more":
-		title, _ := updateMenuText(w.view.Update)
-		if title == "" {
-			title = tr("Check for updates", "检查更新")
-		}
-		return []quotaMenuChoice{
-			{Label: tr("Import chats from all accounts…", "导入所有账号的聊天…"), Disabled: w.view.Busy, Action: quotaMenuAction{Kind: "import", Active: w.view.Active}},
-			{Label: tr("Open data folder", "打开数据文件夹"), Action: quotaMenuAction{Kind: "folder"}},
-			{Label: title, Action: quotaMenuAction{Kind: "update"}},
-		}
 	}
 	return nil
+}
+
+func quotaChoicesHeight(choices []quotaMenuChoice) int {
+	height := 48
+	for _, choice := range choices {
+		if choice.Separator {
+			height += 10
+		} else {
+			height += 34
+		}
+	}
+	return height
 }
 
 // invoke is also used by isolated native tests, never by an external endpoint.

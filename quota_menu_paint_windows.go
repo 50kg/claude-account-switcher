@@ -414,9 +414,9 @@ func (p *qmPainter) footer() {
 	p.round(quotaRect{knobX, y + 12, 12, 12}, 12, knobColor, knobColor)
 	w.addHit(quotaMenuHit{Rect: quotaRect{w.width - 135, y + 1, 125, 33}, Action: quotaMenuAction{Kind: "auto", Enabled: !w.view.Auto}}, false)
 	p.fill(quotaRect{1, y + 35, w.width - 2, 1}, qmLine)
-	labels := []string{tr("Add account", "添加账号"), tr("Settings", "设置"), tr("More", "更多"), tr("Quit", "退出")}
+	labels := []string{tr("Add account", "添加账号"), tr("Settings", "设置"), tr("Quit", "退出")}
 	for i, label := range labels {
-		r := quotaRect{12 + i*(w.width-24)/4, y + 39, (w.width - 24) / 4, 30}
+		r := quotaRect{12 + i*(w.width-24)/len(labels), y + 39, (w.width - 24) / len(labels), 30}
 		hit := quotaMenuHit{Rect: r}
 		switch i {
 		case 0:
@@ -424,8 +424,6 @@ func (p *qmPainter) footer() {
 		case 1:
 			hit.Popup = "settings"
 		case 2:
-			hit.Popup = "more"
-		case 3:
 			hit.Action = quotaMenuAction{Kind: "quit"}
 		}
 		if i == 0 && w.view.Busy {
@@ -450,10 +448,6 @@ func (p *qmPainter) footerIcon(i, x, y int) {
 			p.line(x+d[0]*5, y+d[1]*5, x+d[0]*7, y+d[1]*7, qmMuted, 1)
 		}
 	case 2:
-		for _, offset := range []int{-5, 0, 5} {
-			p.round(quotaRect{x + offset, y - 1, 2, 2}, 2, qmMuted, qmMuted)
-		}
-	case 3:
 		pen, _, _ := qmCreatePen.Call(0, uintptr(max(1, p.w.scale(1))), qmColor(qmMuted))
 		old, _, _ := qmSelectObject.Call(p.dc, pen)
 		qmArc.Call(p.dc, uintptr(p.w.scale(x-6)), uintptr(p.w.scale(y-6)), uintptr(p.w.scale(x+6)), uintptr(p.w.scale(y+6)), uintptr(p.w.scale(x-4)), uintptr(p.w.scale(y-5)), uintptr(p.w.scale(x+4)), uintptr(p.w.scale(y-5)))

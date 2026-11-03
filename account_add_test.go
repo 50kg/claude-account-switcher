@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -33,6 +34,9 @@ func TestAccountRegistrationOnlyNotifiesWithoutRestartOrImport(t *testing.T) {
 				}
 				if !strings.Contains(s.status, tr("Import chats from all accounts", "导入所有账号的聊天")) {
 					t.Fatal("notice lost the menu command")
+				}
+				if runtime.GOOS == "windows" && !strings.Contains(s.status, tr("Settings →", "设置 →")) {
+					t.Fatal("notice does not point to the combined Settings menu")
 				}
 				view := makeQuotaMenuView(s.snapshot(), false, now)
 				if view.Status != accountAddedNotice() {

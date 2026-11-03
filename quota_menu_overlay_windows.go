@@ -14,22 +14,27 @@ func (p *qmPainter) overlay() {
 	}
 	choices := w.choices(o.Kind)
 	width := min(languageOffset(360, 314), w.width-24)
-	height := 40 + len(choices)*34 + 8
+	height := quotaChoicesHeight(choices)
 	x := max(12, min(o.Anchor.X, w.width-width-12))
 	y := max(8, min(o.Anchor.Y-height-6, w.height-height-8))
 	o.Rect = quotaRect{x, y, width, height}
 	p.round(quotaRect{x + 2, y + 3, width, height}, 6, 0xe6eaf0, 0xe6eaf0)
 	p.round(o.Rect, 6, qmWhite, 0xcfd6e0)
 	title := tr("Settings", "设置")
-	if o.Kind == "more" {
-		title = tr("More", "更多")
-	} else if o.Kind == "threshold" {
+	if o.Kind == "threshold" {
 		title = tr("Auto-switch threshold", "自动切换阈值")
 	}
 	p.text(title, quotaRect{x + 14, y + 5, width - 28, 30}, 3, qmMuted, false)
 	p.fill(quotaRect{x + 12, y + 37, width - 24, 1}, qmLine)
-	for i, choice := range choices {
-		r := quotaRect{x + 6, y + 40 + i*34, width - 12, 32}
+	rowY := y + 40
+	for _, choice := range choices {
+		if choice.Separator {
+			p.fill(quotaRect{x + 12, rowY + 4, width - 24, 1}, qmLine)
+			rowY += 10
+			continue
+		}
+		r := quotaRect{x + 6, rowY, width - 12, 32}
+		rowY += 34
 		color := uint32(qmInk)
 		if choice.Disabled {
 			color = qmMuted
@@ -38,15 +43,11 @@ func (p *qmPainter) overlay() {
 			if index == w.hover || index == w.focus {
 				p.round(r, 4, 0xeaf1fd, 0xeaf1fd)
 			}
-			w.addHit(quotaMenuHit{Rect: r, Action: choice.Action, Popup: choice.Popup}, false)
+			w.addHit(quotaMenuHit{Rect: r, Action: choice.Action}, false)
 		}
 		p.text(choice.Label, quotaRect{r.X + 10, r.Y, r.W - 40, r.H}, 0, color, false)
 		if choice.Checked {
 			p.text("✓", quotaRect{r.X + r.W - 28, r.Y, 18, r.H}, 3, qmBlue, true)
-		} else if choice.Popup != "" {
-			ax, ay := r.X+r.W-17, r.Y+r.H/2
-			p.line(ax-2, ay-4, ax+2, ay, qmMuted, 1)
-			p.line(ax+2, ay, ax-2, ay+4, qmMuted, 1)
 		}
 	}
 }
@@ -82,7 +83,7 @@ func (p *qmPainter) confirmation(o *quotaMenuOverlay) {
 	}
 	p.text(tr("Claude will close and restart.", "此操作会关闭并重新启动 Claude。"), quotaRect{x + 18, textY, width - 36, 24}, 0, qmInk, false)
 	if o.Confirm.Kind == "add" {
-		p.text(tr("Import chats manually from More after signing in.", "添加成功后，请从“更多”手动导入聊天。"), quotaRect{x + 18, textY + 25, width - 36, 24}, 1, qmMuted, false)
+		p.text(tr("Import chats manually from Settings after signing in.", "添加成功后，请从“设置”手动导入聊天。"), quotaRect{x + 18, textY + 25, width - 36, 24}, 1, qmMuted, false)
 	}
 	cancel := quotaRect{x + width - 240, y + height - 48, 90, 32}
 	accept := quotaRect{x + width - 138, cancel.Y, 120, 32}

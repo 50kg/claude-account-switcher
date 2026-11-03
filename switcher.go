@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -260,7 +261,10 @@ func (s *switcher) check(ctx context.Context) (string, func() error) {
 }
 
 func accountAddedNotice() string {
-	return tr("Account added. Use More → Import chats from all accounts.", "账号已添加；聊天请手动导入：更多 → 导入所有账号的聊天。")
+	if runtime.GOOS == "windows" {
+		return tr("Account added. Use Settings → Import chats from all accounts.", "账号已添加；聊天请手动导入：设置 → 导入所有账号的聊天。")
+	}
+	return tr("Account added. Use Import chats from all accounts in the menu.", "账号已添加；请在菜单中选择“导入所有账号的聊天”。")
 }
 
 // afterUsageCheck finishes registration without restarting the newly signed-in

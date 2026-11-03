@@ -230,6 +230,29 @@ func TestNativeQuotaMenuChild(t *testing.T) {
 		v, _, _ := visible.Call(w.hwnd)
 		return v != 0 && len(w.hits) > 0 && len(w.view.Accounts) == 3
 	})
+	nativeMenuDo(t, m, func(w *quotaMenuWindow) {
+		auto, threshold, settings, toolbar := 0, 0, 0, 0
+		for _, h := range w.hits {
+			if h.Action.Kind == "auto" {
+				auto++
+			}
+			if h.Popup == "threshold" {
+				threshold++
+			}
+			if h.Popup == "settings" {
+				settings++
+			}
+			if h.Rect.Y >= w.bodyBottom+35 {
+				toolbar++
+			}
+			if h.Popup == "more" {
+				t.Error("removed More entry is still visible")
+			}
+		}
+		if auto != 1 || threshold != 1 || settings != 1 || toolbar != 3 {
+			t.Errorf("unexpected main menu controls: auto=%d threshold=%d settings=%d toolbar=%d", auto, threshold, settings, toolbar)
+		}
+	})
 	dir := os.Getenv("QUOTA_MENU_EVIDENCE")
 	if dir == "" {
 		dir = t.TempDir()
@@ -343,7 +366,24 @@ func TestNativeQuotaMenuChild(t *testing.T) {
 	nativeMenuWait(t, m, func(w *quotaMenuWindow) bool { return w.overlay == nil && w.view.Threshold == 94 && w.view.Auto })
 	nativeMenuClickHit(t, m, func(h quotaMenuHit) bool { return h.Popup == "settings" })
 	nativeMenuWait(t, m, func(w *quotaMenuWindow) bool { return w.overlay != nil && w.overlay.Kind == "settings" })
-	nativeMenuDo(t, m, func(w *quotaMenuWindow) { imageErr = w.capture(filepath.Join(dir, "native-settings.png")) })
+	nativeMenuDo(t, m, func(w *quotaMenuWindow) {
+		imageErr = w.capture(filepath.Join(dir, "native-settings.png"))
+		counts := map[string]int{}
+		for _, h := range w.hits {
+			if h.Popup != "" {
+				t.Error("settings unexpectedly added a nested submenu")
+			}
+			counts[h.Action.Kind]++
+		}
+		if len(w.hits) != 5 {
+			t.Errorf("settings has %d actions, want five", len(w.hits))
+		}
+		for _, kind := range []string{"spend", "autostart", "import", "folder", "update"} {
+			if counts[kind] != 1 {
+				t.Errorf("settings action %s missing or repeated", kind)
+			}
+		}
+	})
 	nativeMenuClickHit(t, m, func(h quotaMenuHit) bool { return h.Action.Kind == "spend" })
 	if a := f.expectAction(t, "spend"); !a.Enabled {
 		t.Fatal("spend setting did not enable")
@@ -356,7 +396,7 @@ func TestNativeQuotaMenuChild(t *testing.T) {
 		t.Fatal("startup setting did not enable")
 	}
 	nativeMenuWait(t, m, func(w *quotaMenuWindow) bool { return w.overlay == nil && w.view.Startup })
-	for _, kind := range []string{"more", "settings"} {
+	for _, kind := range []string{"settings"} {
 		nativeMenuClickHit(t, m, func(h quotaMenuHit) bool { return h.Popup == kind })
 		nativeMenuWait(t, m, func(w *quotaMenuWindow) bool { return w.overlay != nil && w.overlay.Kind == kind })
 		nativeMenuDo(t, m, func(w *quotaMenuWindow) { procSendMessage.Call(w.hwnd, 0x100, 27, 0) })
@@ -364,9 +404,9 @@ func TestNativeQuotaMenuChild(t *testing.T) {
 			t.Fatal("submenu Escape hid the whole menu")
 		}
 	}
-	nativeMenuClickHit(t, m, func(h quotaMenuHit) bool { return h.Popup == "more" })
-	nativeMenuWait(t, m, func(w *quotaMenuWindow) bool { return w.overlay != nil && w.overlay.Kind == "more" })
-	nativeMenuDo(t, m, func(w *quotaMenuWindow) { imageErr = w.capture(filepath.Join(dir, "native-more.png")) })
+	nativeMenuClickHit(t, m, func(h quotaMenuHit) bool { return h.Popup == "settings" })
+	nativeMenuWait(t, m, func(w *quotaMenuWindow) bool { return w.overlay != nil && w.overlay.Kind == "settings" })
+	nativeMenuDo(t, m, func(w *quotaMenuWindow) { imageErr = w.capture(filepath.Join(dir, "native-settings-enabled.png")) })
 	nativeMenuClickHit(t, m, func(h quotaMenuHit) bool { return h.Action.Kind == "import" })
 	nativeMenuWait(t, m, func(w *quotaMenuWindow) bool { return w.overlay != nil && w.overlay.Kind == "confirm" })
 	nativeMenuClickHit(t, m, func(h quotaMenuHit) bool { return h.Dismiss })
@@ -375,6 +415,19 @@ func TestNativeQuotaMenuChild(t *testing.T) {
 	nativeMenuDo(t, m, func(w *quotaMenuWindow) { procSendMessage.Call(w.hwnd, 0x100, 27, 0) })
 	if len(f.actions) != 0 {
 		t.Fatal("cancelled add/import dispatched an action")
+	}
+	// Tools are reached directly from Settings. The fixture only records the
+	// intent; it never opens a real folder or makes a network request.
+	for _, kind := range []string{"folder", "update"} {
+		nativeMenuClickHit(t, m, func(h quotaMenuHit) bool { return h.Popup == "settings" })
+		nativeMenuWait(t, m, func(w *quotaMenuWindow) bool { return w.overlay != nil && w.overlay.Kind == "settings" })
+		nativeMenuClickHit(t, m, func(h quotaMenuHit) bool { return h.Action.Kind == kind })
+		f.expectAction(t, kind)
+		if m.shown.Load() {
+			t.Fatal("tool command did not close menu")
+		}
+		m.show()
+		nativeMenuWait(t, m, func(w *quotaMenuWindow) bool { return m.shown.Load() && w.overlay == nil })
 	}
 	// An empty part of the parent closes only the overlay, never an account.
 	nativeMenuClickHit(t, m, func(h quotaMenuHit) bool { return h.Popup == "settings" })
@@ -415,8 +468,8 @@ func TestNativeQuotaMenuChild(t *testing.T) {
 			}
 		}
 	})
-	nativeMenuClickHit(t, m, func(h quotaMenuHit) bool { return h.Popup == "more" })
-	nativeMenuWait(t, m, func(w *quotaMenuWindow) bool { return w.overlay != nil && w.overlay.Kind == "more" })
+	nativeMenuClickHit(t, m, func(h quotaMenuHit) bool { return h.Popup == "settings" })
+	nativeMenuWait(t, m, func(w *quotaMenuWindow) bool { return w.overlay != nil && w.overlay.Kind == "settings" })
 	nativeMenuDo(t, m, func(w *quotaMenuWindow) {
 		qmUpdateWindow.Call(w.hwnd)
 		for _, h := range w.hits {
@@ -565,6 +618,32 @@ func TestNativeQuotaMenuChild(t *testing.T) {
 	})
 	if len(f.actions) != 0 {
 		t.Fatal("browsing the long list dispatched an account action")
+	}
+	// The combined settings popup also fits before the first account exists.
+	f.mu.Lock()
+	f.snapshot.Accounts = nil
+	f.snapshot.Active = ""
+	f.mu.Unlock()
+	m.update()
+	nativeMenuWait(t, m, func(w *quotaMenuWindow) bool { return len(w.view.Accounts) == 0 })
+	nativeMenuClickHit(t, m, func(h quotaMenuHit) bool { return h.Popup == "settings" })
+	nativeMenuWait(t, m, func(w *quotaMenuWindow) bool { return w.overlay != nil && w.overlay.Kind == "settings" })
+	nativeMenuDo(t, m, func(w *quotaMenuWindow) {
+		imageErr = w.capture(filepath.Join(dir, "native-settings-empty.png"))
+		r := w.overlay.Rect
+		if r.Y < 0 || r.Y+r.H > w.height || len(w.hits) != 5 {
+			t.Error("combined settings clipped its actions in an empty account list")
+		}
+		procSendMessage.Call(w.hwnd, 0x100, 36, 0)
+		procSendMessage.Call(w.hwnd, 0x100, 40, 0)
+		procSendMessage.Call(w.hwnd, 0x100, 13, 0)
+	})
+	if a := f.expectAction(t, "autostart"); a.Enabled {
+		t.Fatal("keyboard preference selection did not reach Start at login")
+	}
+	nativeMenuWait(t, m, func(w *quotaMenuWindow) bool { return w.overlay == nil && !w.view.Startup })
+	if imageErr != nil {
+		t.Fatal(imageErr)
 	}
 	if len(f.errors) != 0 {
 		t.Fatal(<-f.errors)
