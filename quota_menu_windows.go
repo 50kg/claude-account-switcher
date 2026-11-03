@@ -28,17 +28,12 @@ var (
 	qmUpdateWindow  = user32.NewProc("UpdateWindow")
 	qmGetClientRect = user32.NewProc("GetClientRect")
 	qmGetCursorPos  = user32.NewProc("GetCursorPos")
-	qmClientScreen  = user32.NewProc("ClientToScreen")
 	qmForeground    = user32.NewProc("GetForegroundWindow")
 	qmGetAncestor   = user32.NewProc("GetAncestor")
 	qmKeyState      = user32.NewProc("GetAsyncKeyState")
 	qmMonitorPoint  = user32.NewProc("MonitorFromPoint")
 	qmGetMonitorDPI = windows.NewLazySystemDLL("shcore.dll").NewProc("GetDpiForMonitor")
 	qmLoadCursor    = user32.NewProc("LoadCursorW")
-	qmCreatePopup   = user32.NewProc("CreatePopupMenu")
-	qmAppendMenu    = user32.NewProc("AppendMenuW")
-	qmTrackPopup    = user32.NewProc("TrackPopupMenuEx")
-	qmDestroyMenu   = user32.NewProc("DestroyMenu")
 	qmWindows       sync.Map
 	qmClassOnce     sync.Once
 	qmClassErr      error
@@ -90,7 +85,6 @@ type nativeQuotaMenuOptions struct {
 	noActivate  bool
 	dpiOverride int
 	input       func(uintptr) quotaMenuInput
-	confirm     func(quotaMenuAction) bool
 }
 
 type quotaMenuInput struct {
@@ -190,7 +184,7 @@ func (m *nativeQuotaMenu) run() {
 		}
 	})
 	var err error
-	w := &quotaMenuWindow{menu: m, collapsed: map[string]bool{}, focus: -1, hover: -1, pressed: -1, dpi: 96}
+	w := &quotaMenuWindow{menu: m, focus: -1, hover: -1, pressed: -1, dpi: 96}
 	if qmClassErr != nil {
 		err = qmClassErr
 	} else {
@@ -246,10 +240,24 @@ func (m *nativeQuotaMenu) run() {
 }
 
 type quotaMenuHit struct {
-	Rect   quotaRect
-	Action quotaMenuAction
-	Fold   string
-	Popup  string
+	Rect    quotaRect
+	Action  quotaMenuAction
+	Popup   string
+	Dismiss bool
+}
+
+type quotaMenuOverlay struct {
+	Kind    string
+	Anchor  quotaRect
+	Rect    quotaRect
+	Confirm quotaMenuAction
+}
+
+type quotaMenuChoice struct {
+	Label             string
+	Checked, Disabled bool
+	Action            quotaMenuAction
+	Popup             string
 }
 
 type quotaMenuWindow struct {
@@ -260,11 +268,9 @@ type quotaMenuWindow struct {
 	anchor                                                         qmPoint
 	work                                                           quotaRect
 	fonts                                                          [4]uintptr
-	collapsed                                                      map[string]bool
 	hits                                                           []quotaMenuHit
 	focus, hover, pressed                                          int
-	modal                                                          bool
-	nativePopup                                                    uintptr
+	overlay                                                        *quotaMenuOverlay
 	dismiss                                                        quotaMenuDismissal
 	tooltip                                                        uintptr
 	tooltipText                                                    [][]uint16
@@ -292,7 +298,7 @@ func quotaMenuWindowProc(hwnd, msg, wp, lp uintptr) uintptr {
 		}
 		return 0
 	case qmRefresh:
-		if w.menu.shown.Load() && !w.modal {
+		if w.menu.shown.Load() {
 			w.reload(false)
 		}
 		return 0
@@ -309,7 +315,7 @@ func quotaMenuWindowProc(hwnd, msg, wp, lp uintptr) uintptr {
 	case 0x14: // WM_ERASEBKGND: the buffered painter fills everything
 		return 1
 	case 0x113: // WM_TIMER
-		if w.menu.shown.Load() && !w.modal && w.dismiss.hide(time.Now(), w.input()) {
+		if w.menu.shown.Load() && w.dismiss.hide(time.Now(), w.input()) {
 			w.hide()
 		}
 		return 0
@@ -324,10 +330,15 @@ func quotaMenuWindowProc(hwnd, msg, wp, lp uintptr) uintptr {
 		i := w.hit(int(int16(lp&0xffff))*96/w.dpi, int(int16(lp>>16))*96/w.dpi)
 		if i >= 0 && i == w.pressed {
 			w.activate(w.hits[i])
+		} else if w.overlay != nil && !w.overlay.Rect.contains(int(int16(lp&0xffff))*96/w.dpi, int(int16(lp>>16))*96/w.dpi) {
+			w.closeOverlay()
 		}
 		w.pressed = -1
 		return 0
 	case 0x20A: // WM_MOUSEWHEEL
+		if w.overlay != nil {
+			return 0
+		}
 		w.scroll = max(0, min(w.scroll-int(int16(wp>>16))/120*60, max(0, w.contentHeight-(w.bodyBottom-w.bodyTop))))
 		w.focus, w.hover = -1, -1
 		w.invalidate()
@@ -335,7 +346,11 @@ func quotaMenuWindowProc(hwnd, msg, wp, lp uintptr) uintptr {
 	case 0x100: // WM_KEYDOWN
 		switch wp {
 		case 27:
-			w.hide()
+			if w.overlay != nil {
+				w.closeOverlay()
+			} else {
+				w.hide()
+			}
 		case 9, 38, 40:
 			if len(w.hits) > 0 {
 				direction := 1
@@ -350,7 +365,16 @@ func quotaMenuWindowProc(hwnd, msg, wp, lp uintptr) uintptr {
 			if w.focus >= 0 && w.focus < len(w.hits) {
 				w.activate(w.hits[w.focus])
 			}
+		case 36, 35:
+			w.focus = 0
+			if wp == 35 {
+				w.focus = len(w.hits) - 1
+			}
+			w.invalidate()
 		case 33, 34:
+			if w.overlay != nil {
+				return 0
+			}
 			delta := w.bodyBottom - w.bodyTop - 40
 			if wp == 33 {
 				delta = -delta
@@ -413,6 +437,7 @@ func (w *quotaMenuWindow) reload(show bool) {
 	if show {
 		qmGetCursorPos.Call(uintptr(unsafe.Pointer(&w.anchor)))
 		w.scroll, w.focus, w.hover, w.pressed = 0, -1, -1, -1
+		w.overlay = nil
 	}
 	packed := uintptr(uint32(w.anchor.X)) | uintptr(uint32(w.anchor.Y))<<32
 	monitor, _, _ := qmMonitorPoint.Call(packed, 2)
@@ -442,19 +467,19 @@ func (w *quotaMenuWindow) reload(show bool) {
 	w.work = quotaRect{int(info.Work.Left), int(info.Work.Top), int(info.Work.Right - info.Work.Left), int(info.Work.Bottom - info.Work.Top)}
 	w.contentHeight = 0
 	for _, a := range w.view.Accounts {
-		w.contentHeight += quotaAccountHeight(a, w.collapsed[a.ID])
+		w.contentHeight += quotaAccountHeight(a)
 	}
 	if len(w.view.Accounts) == 0 {
 		w.contentHeight = 92
 	}
-	w.bodyTop = 58
+	w.bodyTop = quotaMenuHeaderHeight
 	if w.view.Status != "" {
 		w.bodyTop += 30
 	}
-	position := placeQuotaMenu(w.work, int(w.anchor.X), int(w.anchor.Y), w.scale(520), w.scale(w.bodyTop+w.contentHeight+88))
+	position := placeQuotaMenu(w.work, int(w.anchor.X), int(w.anchor.Y), w.scale(520), w.scale(w.bodyTop+w.contentHeight+quotaMenuFooterHeight))
 	w.width = position.W * 96 / w.dpi
 	w.height = position.H * 96 / w.dpi
-	w.bodyBottom = w.height - 88
+	w.bodyBottom = w.height - quotaMenuFooterHeight
 	w.scroll = max(0, min(w.scroll, max(0, w.contentHeight-(w.bodyBottom-w.bodyTop))))
 	order := ^uintptr(0) // HWND_TOPMOST
 	if w.menu.options.noActivate {
@@ -483,6 +508,7 @@ func (w *quotaMenuWindow) hide() {
 	qmShowWindow.Call(w.hwnd, 0)
 	w.menu.shown.Store(false)
 	w.focus, w.hover, w.pressed = -1, -1, -1
+	w.overlay = nil
 }
 
 func (w *quotaMenuWindow) hit(x, y int) int {
@@ -494,51 +520,37 @@ func (w *quotaMenuWindow) hit(x, y int) int {
 	return -1
 }
 
+func (w *quotaMenuWindow) closeOverlay() {
+	w.overlay = nil
+	w.focus, w.hover, w.pressed = -1, -1, -1
+	w.invalidate()
+}
+
 func (w *quotaMenuWindow) activate(hit quotaMenuHit) {
-	if hit.Fold != "" {
-		w.collapsed[hit.Fold] = !w.collapsed[hit.Fold]
-		w.focus, w.hover = -1, -1
-		w.reload(false)
+	if hit.Dismiss {
+		w.closeOverlay()
 		return
 	}
 	if hit.Popup != "" {
-		w.popup(hit.Popup, hit.Rect)
+		w.overlay = &quotaMenuOverlay{Kind: hit.Popup, Anchor: hit.Rect}
+		w.focus, w.hover, w.pressed = -1, -1, -1
+		w.invalidate()
 		return
 	}
 	a := hit.Action
 	if a.Kind == "" {
 		return
 	}
-	if a.Kind == "switch" || a.Kind == "add" || a.Kind == "import" {
-		w.modal = true
-		confirmed := false
-		if w.menu.options.confirm != nil {
-			confirmed = w.menu.options.confirm(a)
-		} else {
-			text := tr("This restarts Claude. Continue?", "此操作会关闭并重新启动 Claude。是否继续？")
-			if a.Kind == "switch" {
-				for _, account := range w.view.Accounts {
-					if account.ID == a.Account {
-						text = account.Name + "\n" + account.Email + "\n\n" + text
-						break
-					}
-				}
-			} else if a.Kind == "add" {
-				text = tr("Add an account", "添加账号") + "\n\n" + text
-			} else {
-				text = tr("Import chats", "导入聊天") + "\n\n" + text
-			}
-			answer, _ := windows.MessageBox(windows.HWND(w.hwnd), windows.StringToUTF16Ptr(text), windows.StringToUTF16Ptr(tr("Confirm restart", "确认重启Claude")), windows.MB_YESNO|windows.MB_ICONQUESTION|windows.MB_DEFBUTTON2)
-			confirmed = answer == 6
-		}
-		w.modal = false
-		w.dismiss.open(time.Now(), w.input())
-		if !confirmed {
-			return
-		}
-		a.Confirmed = true
+	if (a.Kind == "switch" || a.Kind == "add" || a.Kind == "import") && !a.Confirmed {
+		// Keep the original active identity until the user confirms. The
+		// dispatcher revalidates it against the latest snapshot before acting.
+		w.overlay = &quotaMenuOverlay{Kind: "confirm", Confirm: a}
+		w.focus, w.hover, w.pressed = 0, -1, -1 // Cancel is the default.
+		w.invalidate()
+		return
 	}
 	keepOpen := a.Kind == "auto" || a.Kind == "spend" || a.Kind == "threshold" || a.Kind == "autostart"
+	w.closeOverlay()
 	if !keepOpen {
 		w.hide()
 	}
@@ -552,63 +564,33 @@ func (w *quotaMenuWindow) activate(hit quotaMenuHit) {
 	}()
 }
 
-func (w *quotaMenuWindow) popup(kind string, anchor quotaRect) {
-	menu, _, _ := qmCreatePopup.Call()
-	if menu == 0 {
-		return
-	}
-	defer qmDestroyMenu.Call(menu)
-	actions := map[uintptr]quotaMenuAction{}
-	next := uintptr(100)
-	add := func(label string, checked bool, action quotaMenuAction) {
-		next++
-		flags := uintptr(0)
-		if checked {
-			flags |= 8
+func (w *quotaMenuWindow) choices(kind string) []quotaMenuChoice {
+	switch kind {
+	case "settings":
+		return []quotaMenuChoice{
+			{Label: tr("Auto-switch when nearly full", "额度接近用尽时自动切换"), Checked: w.view.Auto, Action: quotaMenuAction{Kind: "auto", Enabled: !w.view.Auto}},
+			{Label: fmt.Sprintf(tr("Switch at %.0f%% used", "自动切换阈值：已用 %.0f%%"), w.view.Threshold), Popup: "threshold"},
+			{Label: tr("Use expiring weekly allowance", "优先使用即将重置的周额度"), Checked: w.view.Spend, Action: quotaMenuAction{Kind: "spend", Enabled: !w.view.Spend}},
+			{Label: tr("Start at login", "开机启动"), Checked: w.view.Startup, Action: quotaMenuAction{Kind: "autostart", Enabled: !w.view.Startup}},
 		}
-		if w.view.Busy && (action.Kind == "import" || action.Kind == "add") {
-			flags |= 3
-		}
-		qmAppendMenu.Call(menu, flags, next, uintptr(unsafe.Pointer(windows.StringToUTF16Ptr(label))))
-		actions[next] = action
-	}
-	if kind == "settings" || kind == "threshold" {
-		if kind == "settings" {
-			add(tr("Auto-switch when nearly full", "额度接近用尽时自动切换"), w.view.Auto, quotaMenuAction{Kind: "auto", Enabled: !w.view.Auto})
-		}
+	case "threshold":
+		var choices []quotaMenuChoice
 		for _, value := range thresholds {
-			add(fmt.Sprintf(tr("Switch at %.0f%% used", "已用%.0f%%时切换"), value), w.view.Threshold == value, quotaMenuAction{Kind: "threshold", Threshold: value})
+			choices = append(choices, quotaMenuChoice{Label: fmt.Sprintf(tr("Switch at %.0f%% used", "已用 %.0f%% 时切换"), value), Checked: w.view.Threshold == value, Action: quotaMenuAction{Kind: "threshold", Threshold: value}})
 		}
-		if kind == "settings" {
-			qmAppendMenu.Call(menu, 0x800, 0, 0)
-			add(tr("Use expiring weekly allowance", "优先使用即将重置的周额度"), w.view.Spend, quotaMenuAction{Kind: "spend", Enabled: !w.view.Spend})
-			add(tr("Start at login", "开机启动"), w.view.Startup, quotaMenuAction{Kind: "autostart", Enabled: !w.view.Startup})
-		}
-	} else {
-		add(tr("Import chats from all accounts…", "导入所有账号的聊天…"), false, quotaMenuAction{Kind: "import", Active: w.view.Active})
-		add(tr("Open data folder", "打开数据文件夹"), false, quotaMenuAction{Kind: "folder"})
+		return choices
+	case "more":
 		title, _ := updateMenuText(w.view.Update)
 		if title == "" {
 			title = tr("Check for updates", "检查更新")
 		}
-		add(title, false, quotaMenuAction{Kind: "update"})
+		return []quotaMenuChoice{
+			{Label: tr("Import chats from all accounts…", "导入所有账号的聊天…"), Disabled: w.view.Busy, Action: quotaMenuAction{Kind: "import", Active: w.view.Active}},
+			{Label: tr("Open data folder", "打开数据文件夹"), Action: quotaMenuAction{Kind: "folder"}},
+			{Label: title, Action: quotaMenuAction{Kind: "update"}},
+		}
 	}
-	p := qmPoint{X: int32(w.scale(anchor.X)), Y: int32(w.scale(anchor.Y + anchor.H))}
-	qmClientScreen.Call(w.hwnd, uintptr(unsafe.Pointer(&p)))
-	w.modal = true
-	w.nativePopup = menu
-	selected, _, _ := qmTrackPopup.Call(menu, 0x100|0x2, uintptr(p.X), uintptr(p.Y), w.hwnd, 0)
-	w.nativePopup = 0
-	w.modal = false
-	input := w.input()
-	w.dismiss.open(time.Now(), input)
-	if selected == 0 && !input.inside && input.knownForeground && !input.ownForeground {
-		w.hide()
-		return
-	}
-	if action, ok := actions[selected]; ok {
-		w.activate(quotaMenuHit{Action: action})
-	}
+	return nil
 }
 
 // invoke is also used by isolated native tests, never by an external endpoint.

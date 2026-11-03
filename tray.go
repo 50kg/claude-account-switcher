@@ -35,7 +35,43 @@ type tray struct {
 func (t *tray) onReady() {
 	systray.SetTooltip(tr("Claude Account Switcher", "Claude 账号切换器"))
 	t.setIcon(-1, defaultThreshold)
+	// Refresh the login entry without depending on either menu implementation.
+	if autostartEnabled() {
+		if err := setAutostart(true); err != nil {
+			log.Printf("refresh start at login: %v", err)
+		}
+	}
+	t.menu = newQuotaMenu(func() quotaMenuView {
+		return makeQuotaMenuView(t.s.snapshot(), autostartEnabled(), time.Now())
+	}, t.handleQuotaMenuAction, t.s.setStatus)
+	if t.menu != nil {
+		show := func() { go t.menu.show() }
+		systray.SetOnTapped(show)
+		systray.SetOnSecondaryTapped(show)
+	} else {
+		t.createSystemMenu()
+	}
 
+	// Menu updates arrive from worker goroutines; one goroutine applies them.
+	t.s.onChange = func() {
+		select {
+		case t.updates <- struct{}{}:
+		default:
+		}
+	}
+	go func() {
+		for range t.updates {
+			t.render()
+		}
+	}()
+	t.s.onChange()
+	go t.loop()
+	go t.updateLoop()
+}
+
+// Non-Windows platforms keep their system menu. Windows builds create only
+// the custom menu, so there is no second account-switching path to drift.
+func (t *tray) createSystemMenu() {
 	t.status = systray.AddMenuItem("", "")
 	t.status.Disable()
 	t.status.Hide()
@@ -59,24 +95,9 @@ func (t *tray) onReady() {
 	t.add = systray.AddMenuItem(tr("Add account…", "添加账号…"), tr("Restart Claude on its sign-in screen, your current account is kept", "保留当前账号的登录状态，重启 Claude 并打开登录页面"))
 	t.importNow = systray.AddMenuItem(tr("Import chats from all accounts", "导入所有账号的聊天"), tr("Restart Claude so every chat shows up in this account", "重启 Claude，让所有账号的聊天都显示在当前账号中"))
 	systray.AddSeparator()
-	// Rewriting an enabled entry keeps its path current and adds the Task
-	// Manager record that entries from before v0.1.2 are missing.
-	if autostartEnabled() {
-		if err := setAutostart(true); err != nil {
-			log.Printf("refresh start at login: %v", err)
-		}
-	}
 	t.autostart = systray.AddMenuItemCheckbox(tr("Start at login", "开机启动"), "", autostartEnabled())
 	folder := systray.AddMenuItem(tr("Open data folder", "打开数据文件夹"), "")
 	quit := systray.AddMenuItem(tr("Quit", "退出"), "")
-	t.menu = newQuotaMenu(func() quotaMenuView {
-		return makeQuotaMenuView(t.s.snapshot(), autostartEnabled(), time.Now())
-	}, t.handleQuotaMenuAction, t.s.setStatus)
-	if t.menu != nil {
-		// Windows right-click uses the native custom menu. The original left-
-		// click menu remains available if the custom window cannot be created.
-		systray.SetOnSecondaryTapped(func() { go t.menu.show() })
-	}
 
 	for i, item := range t.accounts {
 		go func() {
@@ -121,22 +142,6 @@ func (t *tray) onReady() {
 			}
 		}
 	}()
-
-	// Menu updates arrive from worker goroutines; one goroutine applies them.
-	t.s.onChange = func() {
-		select {
-		case t.updates <- struct{}{}:
-		default:
-		}
-	}
-	go func() {
-		for range t.updates {
-			t.render()
-		}
-	}()
-	t.s.onChange()
-	go t.loop()
-	go t.updateLoop()
 }
 
 // loop runs refresh every few seconds while a new sign-in is expected,
@@ -170,6 +175,23 @@ func (t *tray) updateLoop() {
 func (t *tray) render() {
 	snap := t.s.snapshot()
 	now := time.Now()
+	if t.menu != nil {
+		tip := tr("Claude Account Switcher", "Claude 账号切换器")
+		pct := -1.0
+		for _, a := range snap.Accounts {
+			if a.UUID == snap.Active {
+				tip = accountTooltip(a, snap.Threshold, now)
+				if a.Usage != nil {
+					pct = a.Usage.current(now).Session
+				}
+				break
+			}
+		}
+		systray.SetTooltip(tip)
+		t.setIcon(pct, snap.Threshold)
+		t.menu.update()
+		return
+	}
 
 	switch {
 	case snap.Status != "":
@@ -265,7 +287,9 @@ func (t *tray) handleQuotaMenuAction(action quotaMenuAction) error {
 		if err := setAutostart(action.Enabled); err != nil {
 			return err
 		}
-		setChecked(t.autostart, autostartEnabled())
+		if t.autostart != nil {
+			setChecked(t.autostart, autostartEnabled())
+		}
 		t.s.onChange()
 	case "folder":
 		shellOpen(t.s.dir)

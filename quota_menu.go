@@ -189,21 +189,24 @@ func placeQuotaMenu(work quotaRect, anchorX, anchorY, width, height int) quotaRe
 	return quotaRect{x, y, width, height}
 }
 
-func quotaAccountHeight(a quotaMenuAccount, collapsed bool) int {
-	if collapsed {
-		return 54
-	}
-	height := 56 + 16
+// Shared layout values keep the painter, scrolling and hit targets in step.
+const (
+	quotaMenuHeaderHeight    = 46
+	quotaMenuFooterHeight    = 74
+	quotaAccountHeaderHeight = 44
+	quotaReadingHeight       = 34
+	quotaAllowanceHeight     = 20
+)
+
+func quotaAccountHeight(a quotaMenuAccount) int {
+	height := quotaAccountHeaderHeight + 4
 	if a.Problem != "" || a.Stale {
 		height += 26
 	}
-	for i, q := range a.Quotas {
-		height += 31
-		if i > 0 {
-			height += 11
-		}
+	for _, q := range a.Quotas {
+		height += quotaReadingHeight
 		if q.Allowance != nil {
-			height += 25
+			height += quotaAllowanceHeight
 		}
 	}
 	return height

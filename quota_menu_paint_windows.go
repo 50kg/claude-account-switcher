@@ -77,7 +77,7 @@ func (w *quotaMenuWindow) freeFonts() {
 
 func (w *quotaMenuWindow) makeFonts() {
 	w.freeFonts()
-	for i, spec := range [][2]int{{14, 400}, {13, 400}, {16, 600}, {13, 600}} {
+	for i, spec := range [][2]int{{14, 400}, {13, 400}, {15, 600}, {13, 600}} {
 		font, _, _ := qmCreateFont.Call(uintptr(-int64(w.scale(spec[0]))), 0, 0, 0, uintptr(spec[1]), 0, 0, 0, 1, 0, 0, 5, 0, uintptr(unsafe.Pointer(windows.StringToUTF16Ptr("Segoe UI"))))
 		w.fonts[i] = font
 	}
@@ -196,18 +196,18 @@ func (w *quotaMenuWindow) draw(dc uintptr) {
 	w.hits = nil
 	w.resetTooltips()
 	p.fill(quotaRect{0, 0, w.width, w.height}, qmWhite)
-	p.ring(33, 29)
-	p.text(tr("Claude Account Switcher", "Claude 账号切换器"), quotaRect{56, 13, 250, 30}, 2, qmInk, false)
+	p.ring(30, 23)
+	p.text(tr("Claude Account Switcher", "Claude 账号切换器"), quotaRect{50, 8, 250, 30}, 2, qmInk, false)
 	updated := tr("Waiting for usage", "等待用量更新")
 	if !w.view.Updated.IsZero() {
 		updated = fmt.Sprintf(tr("%d accounts · %s", "%d个账号 · %s 更新"), len(w.view.Accounts), w.view.Updated.Local().Format("15:04"))
 	}
-	p.text(updated, quotaRect{300, 15, w.width - 320, 27}, 1, qmMuted, true)
-	p.fill(quotaRect{1, 57, w.width - 2, 1}, qmLine)
+	p.text(updated, quotaRect{300, 9, w.width - 320, 27}, 1, qmMuted, true)
+	p.fill(quotaRect{1, quotaMenuHeaderHeight - 1, w.width - 2, 1}, qmLine)
 	if w.view.Status != "" {
-		p.fill(quotaRect{1, 58, w.width - 2, 30}, 0xfaf7ef)
-		p.text(w.view.Status, quotaRect{20, 62, w.width - 40, 23}, 1, qmMuted, false)
-		w.addTooltip(quotaRect{10, 58, w.width - 20, 30}, w.view.Status)
+		p.fill(quotaRect{1, quotaMenuHeaderHeight, w.width - 2, 30}, 0xfaf7ef)
+		p.text(w.view.Status, quotaRect{20, quotaMenuHeaderHeight + 4, w.width - 40, 23}, 1, qmMuted, false)
+		w.addTooltip(quotaRect{10, quotaMenuHeaderHeight, w.width - 20, 30}, w.view.Status)
 	}
 	saved, _, _ := qmSaveDC.Call(dc)
 	qmIntersectClip.Call(dc, 0, uintptr(w.scale(w.bodyTop)), uintptr(w.scale(w.width)), uintptr(w.scale(w.bodyBottom)))
@@ -216,7 +216,7 @@ func (w *quotaMenuWindow) draw(dc uintptr) {
 		p.text(tr("Open Claude and sign in to add an account", "请先在Claude中登录账号"), quotaRect{20, y + 25, w.width - 40, 30}, 0, qmMuted, false)
 	}
 	for _, a := range w.view.Accounts {
-		height := quotaAccountHeight(a, w.collapsed[a.ID])
+		height := quotaAccountHeight(a)
 		if y+height > w.bodyTop && y < w.bodyBottom {
 			p.account(a, y, height)
 		}
@@ -230,6 +230,9 @@ func (w *quotaMenuWindow) draw(dc uintptr) {
 		p.round(quotaRect{w.width - 6, top, 3, thumb}, 3, 0xaeb7c4, 0xaeb7c4)
 	}
 	p.footer()
+	if w.overlay != nil {
+		p.overlay()
+	}
 	// The outline is painted last, preserving a single one-pixel menu edge.
 	p.fill(quotaRect{0, 0, w.width, 1}, 0xcfd6e0)
 	p.fill(quotaRect{0, w.height - 1, w.width, 1}, 0xcfd6e0)
@@ -286,48 +289,37 @@ func (p *qmPainter) account(a quotaMenuAccount, y, height int) {
 	}
 	p.fill(quotaRect{1, y, w.width - 2, height}, bg)
 	p.fill(quotaRect{1, y + height - 1, w.width - 2, 1}, qmLine)
-	if w.collapsed[a.ID] {
-		p.line(23, y+23, 27, y+27, qmMuted, 1)
-		p.line(27, y+27, 31, y+23, qmMuted, 1)
-	} else {
-		p.line(23, y+27, 27, y+23, qmMuted, 1)
-		p.line(27, y+23, 31, y+27, qmMuted, 1)
-	}
-	buttonW := 94
+	buttonW := 88
 	if language != "zh-CN" {
 		buttonW = 102
 	}
-	buttonRect := quotaRect{w.width - 20 - buttonW, y + 14, buttonW, 29}
+	buttonRect := quotaRect{w.width - 20 - buttonW, y + 9, buttonW, 27}
 	leftEnd := buttonRect.X - 10
-	identityWidth := leftEnd - 42
+	identityWidth := leftEnd - 20
 	emailW := min(p.measure(a.Email, 1), max(65, identityWidth-96))
 	planW := p.measure(a.Plan, 1)
 	nameW := min(p.measure(a.Name, 2), max(35, identityWidth-emailW-planW-18))
-	p.text(a.Name, quotaRect{42, y + 14, nameW, 29}, 2, qmInk, false)
-	x := 42 + nameW + 9
-	p.text(a.Plan, quotaRect{x, y + 14, planW, 29}, 1, qmMuted, false)
+	p.text(a.Name, quotaRect{20, y + 9, nameW, 27}, 2, qmInk, false)
+	x := 20 + nameW + 9
+	p.text(a.Plan, quotaRect{x, y + 9, planW, 27}, 1, qmMuted, false)
 	x += planW + 8
-	p.text(a.Email, quotaRect{x, y + 14, max(0, leftEnd-x), 29}, 1, qmMuted, false)
-	w.addHit(quotaMenuHit{Rect: quotaRect{10, y + 8, max(1, leftEnd-10), 38}, Fold: a.ID}, true)
-	w.addTooltip(quotaRect{36, y + 8, max(1, leftEnd-36), 38}, a.Name+"\n"+a.Plan+"\n"+a.Email)
+	p.text(a.Email, quotaRect{x, y + 9, max(0, leftEnd-x), 27}, 1, qmMuted, false)
+	w.addTooltip(quotaRect{20, y + 7, max(1, leftEnd-20), 31}, a.Name+"\n"+a.Plan+"\n"+a.Email)
 	if a.Current {
 		p.round(buttonRect, 4, 0xeaf1fd, 0xeaf1fd)
-		p.text(tr("✓ Current", "✓ 当前账号"), quotaRect{buttonRect.X + 4, buttonRect.Y, buttonRect.W - 8, 29}, 1, 0x215daa, true)
+		p.text(tr("✓ Current", "✓ 当前账号"), quotaRect{buttonRect.X + 4, buttonRect.Y, buttonRect.W - 8, 27}, 1, 0x215daa, true)
 	} else {
 		color := uint32(qmInk)
 		if w.view.Busy {
 			color = qmMuted
 		}
 		p.round(buttonRect, 5, qmWhite, 0xd2d9e3)
-		p.text(tr("Switch ⇄", "切换账号 ⇄"), quotaRect{buttonRect.X + 6, buttonRect.Y, buttonRect.W - 12, 29}, 1, color, false)
+		p.text(tr("Switch", "切换账号"), quotaRect{buttonRect.X + 6, buttonRect.Y, buttonRect.W - 12, 27}, 1, color, false)
 		if !w.view.Busy {
 			w.addHit(quotaMenuHit{Rect: buttonRect, Action: quotaMenuAction{Kind: "switch", Account: a.ID, Active: w.view.Active}}, true)
 		}
 	}
-	if w.collapsed[a.ID] {
-		return
-	}
-	qy := y + 56
+	qy := y + quotaAccountHeaderHeight
 	if a.Problem != "" || a.Stale {
 		problem := a.Problem
 		if problem == "" {
@@ -339,9 +331,9 @@ func (p *qmPainter) account(a quotaMenuAccount, y, height int) {
 	}
 	for _, q := range a.Quotas {
 		p.quota(q, qy)
-		qy += 42
+		qy += quotaReadingHeight
 		if q.Allowance != nil {
-			qy += 25
+			qy += quotaAllowanceHeight
 		}
 	}
 }
@@ -383,7 +375,7 @@ func (p *qmPainter) quota(q quotaMenuReading, y int) {
 		p.round(quotaRect{x, y + 1, noticeW, 19}, 3, fill, fill)
 		p.text(q.Notice, quotaRect{x + 5, y, noticeW - 10, 21}, 1, textColor, false)
 	}
-	track := quotaRect{20, y + 27, w.width - 40, 4}
+	track := quotaRect{20, y + 24, w.width - 40, 4}
 	p.round(track, 4, qmTrack, qmTrack)
 	if q.Used != nil {
 		fillW := int(math.Round(float64(track.W) * math.Max(0, math.Min(100, *q.Used)) / 100))
@@ -392,23 +384,23 @@ func (p *qmPainter) quota(q quotaMenuReading, y int) {
 		}
 	}
 	if q.Allowance != nil {
-		p.text(q.allowanceText(), quotaRect{20, y + 37, w.width - 40, 19}, 1, qmMuted, true)
+		p.text(q.allowanceText(), quotaRect{20, y + 30, w.width - 40, 19}, 1, qmMuted, true)
 	}
-	w.addTooltip(quotaRect{20, y, w.width - 40, 31}, q.Name+" · "+q.Reset+"\n"+q.values()+"\n"+q.allowanceText())
+	w.addTooltip(quotaRect{20, y, w.width - 40, quotaReadingHeight}, q.Name+" · "+q.Reset+"\n"+q.values()+"\n"+q.allowanceText())
 }
 
 func (p *qmPainter) footer() {
 	w := p.w
 	y := w.bodyBottom
-	p.fill(quotaRect{1, y, w.width - 2, 88}, 0xfafbfc)
+	p.fill(quotaRect{1, y, w.width - 2, quotaMenuFooterHeight}, 0xfafbfc)
 	p.fill(quotaRect{1, y, w.width - 2, 1}, qmLine)
-	p.text(tr("Auto-switch", "自动切换"), quotaRect{20, y + 5, 90, 32}, 0, qmInk, false)
+	p.text(tr("Auto-switch", "自动切换"), quotaRect{20, y + 2, 90, 30}, 0, qmInk, false)
 	thresholdText := fmt.Sprintf(tr("At %.0f%% used", "阈值：已用 %.0f%%"), w.view.Threshold)
-	thresholdRect := quotaRect{languageOffset(112, 86), y + 5, p.measure(thresholdText, 1) + 22, 32}
-	p.text(thresholdText, quotaRect{thresholdRect.X, thresholdRect.Y, thresholdRect.W - 18, 32}, 1, qmMuted, false)
+	thresholdRect := quotaRect{languageOffset(112, 86), y + 2, p.measure(thresholdText, 1) + 22, 30}
+	p.text(thresholdText, quotaRect{thresholdRect.X, thresholdRect.Y, thresholdRect.W - 18, 30}, 1, qmMuted, false)
 	arrowX := thresholdRect.X + thresholdRect.W - 10
-	p.line(arrowX-3, y+19, arrowX, y+22, qmMuted, 1)
-	p.line(arrowX, y+22, arrowX+3, y+19, qmMuted, 1)
+	p.line(arrowX-3, y+16, arrowX, y+19, qmMuted, 1)
+	p.line(arrowX, y+19, arrowX+3, y+16, qmMuted, 1)
 	w.addHit(quotaMenuHit{Rect: thresholdRect, Popup: "threshold"}, false)
 	label := tr("Off", "已关闭")
 	fill := uint32(0xe7ebf0)
@@ -416,8 +408,8 @@ func (p *qmPainter) footer() {
 		label = tr("On", "已开启")
 		fill = 0x367de5
 	}
-	p.text(label, quotaRect{w.width - 125, y + 5, 65, 32}, 1, qmMuted, true)
-	toggle := quotaRect{w.width - 50, y + 13, 31, 18}
+	p.text(label, quotaRect{w.width - 125, y + 2, 65, 30}, 1, qmMuted, true)
+	toggle := quotaRect{w.width - 50, y + 9, 31, 18}
 	p.round(toggle, 18, fill, 0xb1bac7)
 	knobX := toggle.X + 3
 	if w.view.Auto {
@@ -427,12 +419,12 @@ func (p *qmPainter) footer() {
 	if w.view.Auto {
 		knobColor = qmWhite
 	}
-	p.round(quotaRect{knobX, y + 16, 12, 12}, 12, knobColor, knobColor)
-	w.addHit(quotaMenuHit{Rect: quotaRect{w.width - 135, y + 3, 125, 37}, Action: quotaMenuAction{Kind: "auto", Enabled: !w.view.Auto}}, false)
-	p.fill(quotaRect{1, y + 43, w.width - 2, 1}, qmLine)
+	p.round(quotaRect{knobX, y + 12, 12, 12}, 12, knobColor, knobColor)
+	w.addHit(quotaMenuHit{Rect: quotaRect{w.width - 135, y + 1, 125, 33}, Action: quotaMenuAction{Kind: "auto", Enabled: !w.view.Auto}}, false)
+	p.fill(quotaRect{1, y + 35, w.width - 2, 1}, qmLine)
 	labels := []string{tr("Add account", "添加账号"), tr("Settings", "设置"), tr("More", "更多"), tr("Quit", "退出")}
 	for i, label := range labels {
-		r := quotaRect{12 + i*(w.width-24)/4, y + 48, (w.width - 24) / 4, 32}
+		r := quotaRect{12 + i*(w.width-24)/4, y + 39, (w.width - 24) / 4, 30}
 		hit := quotaMenuHit{Rect: r}
 		switch i {
 		case 0:
@@ -448,7 +440,7 @@ func (p *qmPainter) footer() {
 			p.text(label, quotaRect{r.X + 22, r.Y, r.W - 22, r.H}, 0, qmMuted, false)
 			continue
 		}
-		p.footerIcon(i, r.X+8, r.Y+16)
+		p.footerIcon(i, r.X+8, r.Y+15)
 		p.text(label, quotaRect{r.X + 22, r.Y, r.W - 22, r.H}, 0, qmInk, false)
 		w.addHit(hit, false)
 	}
