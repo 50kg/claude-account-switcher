@@ -483,6 +483,89 @@ func TestNativeQuotaMenuChild(t *testing.T) {
 			t.Error("overflowing body did not scroll")
 		}
 	})
+	// Many accounts must remain reachable without growing the menu or
+	// dispatching account actions while scrolling.
+	f.mu.Lock()
+	for i := len(f.snapshot.Accounts); i < 60; i++ {
+		f.snapshot.Accounts = append(f.snapshot.Accounts, Account{UUID: fmt.Sprintf("synthetic-many-%d", i), Name: fmt.Sprintf("Account %02d", i+1), Email: fmt.Sprintf("account.%02d@example.com", i+1), Plan: "Max", Usage: &Usage{Session: 30, Weekly: 45, CheckedAt: f.now, SessionReset: f.now.Add(time.Hour), WeeklyReset: f.now.AddDate(0, 0, 2)}})
+	}
+	f.mu.Unlock()
+	nativeMenuDo(t, m, func(w *quotaMenuWindow) {
+		w.menu.options.dpiOverride = 96
+		w.reload(false)
+		procSendMessage.Call(w.hwnd, 0x100, 36, 0) // Home: first account
+		imageErr = w.capture(filepath.Join(dir, "native-many-top.png"))
+	})
+	if imageErr != nil {
+		t.Fatal(imageErr)
+	}
+	var fixedTop, fixedBottom int
+	nativeMenuDo(t, m, func(w *quotaMenuWindow) {
+		fixedTop, fixedBottom = w.bodyTop, w.bodyBottom
+		if len(w.view.Accounts) != 60 || w.bodyBottom-w.bodyTop > quotaMenuMaxBodyHeight || w.maxScroll() == 0 || w.scroll != 0 {
+			t.Error("large account list was truncated or did not have bounded scrolling")
+		}
+		// Four partial wheel deltas form one notch (precision touchpads).
+		for i := 0; i < 4; i++ {
+			procSendMessage.Call(w.hwnd, 0x20A, uintptr(uint32(0xffe20000)), 0)
+		}
+		if w.scroll != 60 {
+			t.Error("partial wheel input did not accumulate")
+		}
+		procSendMessage.Call(w.hwnd, 0x100, 34, 0)
+		if w.scroll <= 60 {
+			t.Error("Page Down did not scroll the list")
+		}
+		procSendMessage.Call(w.hwnd, 0x100, 33, 0)
+		if w.scroll != 60 {
+			t.Error("Page Up did not return to the previous position")
+		}
+		procSendMessage.Call(w.hwnd, 0x100, 35, 0)
+		if w.scroll != w.maxScroll() {
+			t.Error("End did not reach the last account")
+		}
+		procSendMessage.Call(w.hwnd, 0x100, 36, 0)
+	})
+	var track, thumb quotaRect
+	nativeMenuDo(t, m, func(w *quotaMenuWindow) { track, thumb = w.scrollbar() })
+	nativeMenuClick(t, m, track.X+track.W/2, track.Y+track.H-2)
+	nativeMenuDo(t, m, func(w *quotaMenuWindow) {
+		if w.scroll == 0 {
+			t.Error("scrollbar track click did not page down")
+		}
+		procSendMessage.Call(w.hwnd, 0x100, 36, 0)
+		track, thumb = w.scrollbar()
+		x := track.X + track.W/2
+		start := uintptr(uint16(w.scale(x))) | uintptr(uint16(w.scale(thumb.Y+thumb.H/2)))<<16
+		end := uintptr(uint16(w.scale(x))) | uintptr(uint16(w.scale(track.Y+track.H+60)))<<16
+		procSendMessage.Call(w.hwnd, 0x201, 1, start)
+		procSendMessage.Call(w.hwnd, 0x200, 1, end)
+		procSendMessage.Call(w.hwnd, 0x202, 0, end)
+		if w.scroll != w.maxScroll() || w.scrollDragging {
+			t.Error("dragging the scrollbar did not reach the end or release capture")
+		}
+		if w.bodyTop != fixedTop || w.bodyBottom != fixedBottom {
+			t.Error("scrolling moved the header or footer")
+		}
+		imageErr = w.capture(filepath.Join(dir, "native-many-bottom.png"))
+	})
+	if imageErr != nil {
+		t.Fatal(imageErr)
+	}
+	nativeMenuClickHit(t, m, func(h quotaMenuHit) bool { return h.Action.Kind == "switch" && h.Action.Account == "synthetic-many-59" })
+	nativeMenuWait(t, m, func(w *quotaMenuWindow) bool {
+		return w.overlay != nil && w.overlay.Confirm.Account == "synthetic-many-59"
+	})
+	nativeMenuDo(t, m, func(w *quotaMenuWindow) {
+		procSendMessage.Call(w.hwnd, 0x100, 27, 0)
+		procSendMessage.Call(w.hwnd, 0x100, 36, 0)
+		if w.scroll != 0 {
+			t.Error("Home did not restore the top of the list")
+		}
+	})
+	if len(f.actions) != 0 {
+		t.Fatal("browsing the long list dispatched an account action")
+	}
 	if len(f.errors) != 0 {
 		t.Fatal(<-f.errors)
 	}

@@ -20,12 +20,14 @@ func TestModelUsageDisplayAndWarningsBothLanguages(t *testing.T) {
 			for _, want := range []string{
 				tr("total week 45%", "总周 45%"),
 				tr("Fable week 82% (near limit)", "Fable周 82%（接近上限）"),
-				tr("up to 50% of total week", "上限为总周额度的50%"),
 				resetText(now.Add(48*time.Hour), now),
 			} {
 				if !strings.Contains(text, want) {
 					t.Fatalf("display %q is missing %q", text, want)
 				}
+			}
+			if strings.Contains(text, tr("up to 50%", "上限为总周额度的")) {
+				t.Fatalf("removed allowance hint is still displayed: %q", text)
 			}
 			if notice := modelWeeklyNotice(a, now); !strings.HasPrefix(notice, "⚠ ") || !strings.Contains(notice, "82%") {
 				t.Fatalf("warning not visible in dedicated notice: %q", notice)

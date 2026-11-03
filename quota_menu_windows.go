@@ -14,30 +14,32 @@ import (
 )
 
 var (
-	qmRegisterClass = user32.NewProc("RegisterClassExW")
-	qmCreateWindow  = user32.NewProc("CreateWindowExW")
-	qmDestroyWindow = user32.NewProc("DestroyWindow")
-	qmDefWindowProc = user32.NewProc("DefWindowProcW")
-	qmGetMessage    = user32.NewProc("GetMessageW")
-	qmTranslate     = user32.NewProc("TranslateMessage")
-	qmDispatch      = user32.NewProc("DispatchMessageW")
-	qmPostMessage   = user32.NewProc("PostMessageW")
-	qmPostQuit      = user32.NewProc("PostQuitMessage")
-	qmShowWindow    = user32.NewProc("ShowWindow")
-	qmInvalidate    = user32.NewProc("InvalidateRect")
-	qmUpdateWindow  = user32.NewProc("UpdateWindow")
-	qmGetClientRect = user32.NewProc("GetClientRect")
-	qmGetCursorPos  = user32.NewProc("GetCursorPos")
-	qmForeground    = user32.NewProc("GetForegroundWindow")
-	qmGetAncestor   = user32.NewProc("GetAncestor")
-	qmKeyState      = user32.NewProc("GetAsyncKeyState")
-	qmMonitorPoint  = user32.NewProc("MonitorFromPoint")
-	qmGetMonitorDPI = windows.NewLazySystemDLL("shcore.dll").NewProc("GetDpiForMonitor")
-	qmLoadCursor    = user32.NewProc("LoadCursorW")
-	qmWindows       sync.Map
-	qmClassOnce     sync.Once
-	qmClassErr      error
-	qmCallback      = windows.NewCallback(quotaMenuWindowProc)
+	qmRegisterClass  = user32.NewProc("RegisterClassExW")
+	qmCreateWindow   = user32.NewProc("CreateWindowExW")
+	qmDestroyWindow  = user32.NewProc("DestroyWindow")
+	qmDefWindowProc  = user32.NewProc("DefWindowProcW")
+	qmGetMessage     = user32.NewProc("GetMessageW")
+	qmTranslate      = user32.NewProc("TranslateMessage")
+	qmDispatch       = user32.NewProc("DispatchMessageW")
+	qmPostMessage    = user32.NewProc("PostMessageW")
+	qmPostQuit       = user32.NewProc("PostQuitMessage")
+	qmShowWindow     = user32.NewProc("ShowWindow")
+	qmInvalidate     = user32.NewProc("InvalidateRect")
+	qmUpdateWindow   = user32.NewProc("UpdateWindow")
+	qmGetClientRect  = user32.NewProc("GetClientRect")
+	qmGetCursorPos   = user32.NewProc("GetCursorPos")
+	qmForeground     = user32.NewProc("GetForegroundWindow")
+	qmGetAncestor    = user32.NewProc("GetAncestor")
+	qmKeyState       = user32.NewProc("GetAsyncKeyState")
+	qmMonitorPoint   = user32.NewProc("MonitorFromPoint")
+	qmGetMonitorDPI  = windows.NewLazySystemDLL("shcore.dll").NewProc("GetDpiForMonitor")
+	qmLoadCursor     = user32.NewProc("LoadCursorW")
+	qmSetCapture     = user32.NewProc("SetCapture")
+	qmReleaseCapture = user32.NewProc("ReleaseCapture")
+	qmWindows        sync.Map
+	qmClassOnce      sync.Once
+	qmClassErr       error
+	qmCallback       = windows.NewCallback(quotaMenuWindowProc)
 )
 
 const (
@@ -270,6 +272,8 @@ type quotaMenuWindow struct {
 	fonts                                                          [4]uintptr
 	hits                                                           []quotaMenuHit
 	focus, hover, pressed                                          int
+	scrollDragging                                                 bool
+	scrollDragOffset, wheelRemainder                               int
 	overlay                                                        *quotaMenuOverlay
 	dismiss                                                        quotaMenuDismissal
 	tooltip                                                        uintptr
@@ -320,13 +324,41 @@ func quotaMenuWindowProc(hwnd, msg, wp, lp uintptr) uintptr {
 		}
 		return 0
 	case 0x200: // WM_MOUSEMOVE
+		if w.scrollDragging {
+			track, thumb := w.scrollbar()
+			travel := track.H - thumb.H
+			if travel > 0 {
+				y := int(int16(lp>>16))*96/w.dpi - track.Y - w.scrollDragOffset
+				w.setScroll(int(math.Round(float64(y*w.maxScroll()) / float64(travel))))
+			}
+			return 0
+		}
 		w.hover = w.hit(int(int16(lp&0xffff))*96/w.dpi, int(int16(lp>>16))*96/w.dpi)
 		w.invalidate()
 		return 0
 	case 0x201: // WM_LBUTTONDOWN
-		w.pressed = w.hit(int(int16(lp&0xffff))*96/w.dpi, int(int16(lp>>16))*96/w.dpi)
+		x, y := int(int16(lp&0xffff))*96/w.dpi, int(int16(lp>>16))*96/w.dpi
+		if track, thumb := w.scrollbar(); w.overlay == nil && track.contains(x, y) {
+			w.pressed = -1
+			if thumb.contains(x, y) {
+				w.scrollDragging, w.scrollDragOffset = true, y-thumb.Y
+				qmSetCapture.Call(w.hwnd)
+			} else {
+				delta := max(40, w.bodyBottom-w.bodyTop-40)
+				if y < thumb.Y {
+					delta = -delta
+				}
+				w.setScroll(w.scroll + delta)
+			}
+			return 0
+		}
+		w.pressed = w.hit(x, y)
 		return 0
 	case 0x202: // WM_LBUTTONUP
+		if w.scrollDragging {
+			w.stopScrollDrag()
+			return 0
+		}
 		i := w.hit(int(int16(lp&0xffff))*96/w.dpi, int(int16(lp>>16))*96/w.dpi)
 		if i >= 0 && i == w.pressed {
 			w.activate(w.hits[i])
@@ -339,9 +371,16 @@ func quotaMenuWindowProc(hwnd, msg, wp, lp uintptr) uintptr {
 		if w.overlay != nil {
 			return 0
 		}
-		w.scroll = max(0, min(w.scroll-int(int16(wp>>16))/120*60, max(0, w.contentHeight-(w.bodyBottom-w.bodyTop))))
-		w.focus, w.hover = -1, -1
-		w.invalidate()
+		w.wheelRemainder += int(int16(wp >> 16))
+		steps := w.wheelRemainder / 120
+		w.wheelRemainder %= 120
+		w.setScroll(w.scroll - steps*60)
+		return 0
+	case 0x215: // WM_CAPTURECHANGED
+		w.scrollDragging = false
+		return 0
+	case 0x1F: // WM_CANCELMODE
+		w.stopScrollDrag()
 		return 0
 	case 0x100: // WM_KEYDOWN
 		switch wp {
@@ -366,6 +405,14 @@ func quotaMenuWindowProc(hwnd, msg, wp, lp uintptr) uintptr {
 				w.activate(w.hits[w.focus])
 			}
 		case 36, 35:
+			if w.overlay == nil {
+				target := 0
+				if wp == 35 {
+					target = w.maxScroll()
+				}
+				w.setScroll(target)
+				return 0
+			}
 			w.focus = 0
 			if wp == 35 {
 				w.focus = len(w.hits) - 1
@@ -379,8 +426,7 @@ func quotaMenuWindowProc(hwnd, msg, wp, lp uintptr) uintptr {
 			if wp == 33 {
 				delta = -delta
 			}
-			w.scroll = max(0, min(w.scroll+delta, max(0, w.contentHeight-(w.bodyBottom-w.bodyTop))))
-			w.invalidate()
+			w.setScroll(w.scroll + delta)
 		}
 		return 0
 	case 0x02E0: // WM_DPICHANGED
@@ -437,6 +483,7 @@ func (w *quotaMenuWindow) reload(show bool) {
 	if show {
 		qmGetCursorPos.Call(uintptr(unsafe.Pointer(&w.anchor)))
 		w.scroll, w.focus, w.hover, w.pressed = 0, -1, -1, -1
+		w.wheelRemainder = 0
 		w.overlay = nil
 	}
 	packed := uintptr(uint32(w.anchor.X)) | uintptr(uint32(w.anchor.Y))<<32
@@ -476,7 +523,7 @@ func (w *quotaMenuWindow) reload(show bool) {
 	if w.view.Status != "" {
 		w.bodyTop += 30
 	}
-	position := placeQuotaMenu(w.work, int(w.anchor.X), int(w.anchor.Y), w.scale(520), w.scale(w.bodyTop+w.contentHeight+quotaMenuFooterHeight))
+	position := placeQuotaMenu(w.work, int(w.anchor.X), int(w.anchor.Y), w.scale(520), w.scale(w.bodyTop+min(w.contentHeight, quotaMenuMaxBodyHeight)+quotaMenuFooterHeight))
 	w.width = position.W * 96 / w.dpi
 	w.height = position.H * 96 / w.dpi
 	w.bodyBottom = w.height - quotaMenuFooterHeight
@@ -504,11 +551,41 @@ func (w *quotaMenuWindow) reload(show bool) {
 }
 
 func (w *quotaMenuWindow) hide() {
+	w.stopScrollDrag()
 	procKillTimer.Call(w.hwnd, 2)
 	qmShowWindow.Call(w.hwnd, 0)
 	w.menu.shown.Store(false)
 	w.focus, w.hover, w.pressed = -1, -1, -1
 	w.overlay = nil
+}
+
+func (w *quotaMenuWindow) maxScroll() int {
+	return max(0, w.contentHeight-(w.bodyBottom-w.bodyTop))
+}
+
+func (w *quotaMenuWindow) setScroll(target int) {
+	w.scroll = max(0, min(target, w.maxScroll()))
+	w.focus, w.hover, w.pressed = -1, -1, -1
+	w.invalidate()
+}
+
+func (w *quotaMenuWindow) scrollbar() (track, thumb quotaRect) {
+	if w.maxScroll() == 0 || w.bodyBottom-w.bodyTop < 16 {
+		return
+	}
+	track = quotaRect{w.width - 12, w.bodyTop + 4, 9, w.bodyBottom - w.bodyTop - 8}
+	height := min(track.H, max(28, track.H*(w.bodyBottom-w.bodyTop)/w.contentHeight))
+	top := track.Y + w.scroll*(track.H-height)/w.maxScroll()
+	thumb = quotaRect{track.X + 1, top, 7, height}
+	return
+}
+
+func (w *quotaMenuWindow) stopScrollDrag() {
+	if w.scrollDragging {
+		w.scrollDragging = false
+		qmReleaseCapture.Call()
+	}
+	w.pressed = -1
 }
 
 func (w *quotaMenuWindow) hit(x, y int) int {

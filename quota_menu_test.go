@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func TestQuotaMenuPreservesEmailResetAndModelAllowance(t *testing.T) {
+func TestQuotaMenuPreservesEmailResetAndModelUsage(t *testing.T) {
 	for _, lang := range []string{"en", "zh-CN"} {
 		t.Run(lang, func(t *testing.T) {
 			useLanguage(t, lang)
@@ -23,14 +23,13 @@ func TestQuotaMenuPreservesEmailResetAndModelAllowance(t *testing.T) {
 			if len(q) != 3 || q[0].Used == nil || *q[0].Used != 67 || !strings.Contains(q[0].Reset, "15:20") || !strings.Contains(q[0].values(), "33%") {
 				t.Fatalf("lost session fields: %+v", q)
 			}
-			if q[2].Used == nil || *q[2].Used != 100 || q[2].Allowance == nil || *q[2].Allowance != 50 || !strings.Contains(q[2].allowanceText(), "50%") || q[2].Notice != tr("Limit reached", "已用尽") {
+			if q[2].Used == nil || *q[2].Used != 100 || q[2].Notice != tr("Limit reached", "已用尽") {
 				t.Fatalf("lost independent model cap: %+v", q[2])
 			}
 			if q[1].Notice != "" || !strings.Contains(q[1].values(), "33%") {
 				t.Fatal("model exhaustion incorrectly exhausted total week")
 			}
 			*q[2].Used = 1
-			*q[2].Allowance = 1
 			if usage.ModelWeekly[0].Percent != 100 || allowance != 50 {
 				t.Fatal("menu changed cached quota data")
 			}

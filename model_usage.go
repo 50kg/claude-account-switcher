@@ -113,9 +113,6 @@ func modelWeeklyText(model ModelWeeklyUsage, warning bool, now time.Time) string
 	if !model.ResetsAt.IsZero() && model.ResetsAt.After(now) {
 		text += tr(", resets ", "，重置于 ") + resetText(model.ResetsAt, now)
 	}
-	if model.AllowancePercent != nil {
-		text += fmt.Sprintf(tr(" (up to %.0f%% of total week)", "（上限为总周额度的%.0f%%）"), *model.AllowancePercent)
-	}
 	return text
 }
 

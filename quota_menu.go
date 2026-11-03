@@ -33,7 +33,7 @@ type quotaMenuAccount struct {
 
 type quotaMenuReading struct {
 	Name, Reset, Notice string
-	Used, Allowance     *float64
+	Used                *float64
 	Stale               bool
 }
 
@@ -55,7 +55,7 @@ func makeQuotaMenuView(s snapshot, startup bool, now time.Time) quotaMenuView {
 		case "Enterprise":
 			row.Plan = tr("Enterprise", "企业版")
 		}
-		add := func(name string, used *float64, at time.Time, allowance *float64) {
+		add := func(name string, used *float64, at time.Time) {
 			q := quotaMenuReading{Name: name, Reset: quotaResetText(at, now), Stale: row.Stale || (!at.IsZero() && !at.After(now))}
 			if used != nil && validQuotaPercent(*used) {
 				value := *used
@@ -69,10 +69,6 @@ func makeQuotaMenuView(s snapshot, startup bool, now time.Time) quotaMenuView {
 					}
 				}
 			}
-			if allowance != nil && *allowance > 0 && *allowance <= 100 && validQuotaPercent(*allowance) {
-				value := *allowance
-				q.Allowance = &value
-			}
 			row.Quotas = append(row.Quotas, q)
 		}
 		session, weekly := tr("Current session · 5h", "当前会话 · 5小时"), tr("Total week", "本周总额度")
@@ -80,8 +76,8 @@ func makeQuotaMenuView(s snapshot, startup bool, now time.Time) quotaMenuView {
 			if row.Problem == "" {
 				row.Problem = tr("Waiting for usage", "等待用量更新")
 			}
-			add(session, nil, time.Time{}, nil)
-			add(weekly, nil, time.Time{}, nil)
+			add(session, nil, time.Time{})
+			add(weekly, nil, time.Time{})
 		} else {
 			// Keep the last observed values after an unconfirmed reset. The menu
 			// says 'reset due, waiting' instead of inventing a fresh 100% balance.
@@ -89,10 +85,10 @@ func makeQuotaMenuView(s snapshot, startup bool, now time.Time) quotaMenuView {
 			if u.CheckedAt.After(v.Updated) {
 				v.Updated = u.CheckedAt
 			}
-			add(session, &u.Session, u.SessionReset, nil)
-			add(weekly, &u.Weekly, u.WeeklyReset, nil)
+			add(session, &u.Session, u.SessionReset)
+			add(weekly, &u.Weekly, u.WeeklyReset)
 			for _, model := range u.ModelWeekly {
-				add(fmt.Sprintf(tr("%s week", "%s 周额度"), model.Name), &model.Percent, model.ResetsAt, model.AllowancePercent)
+				add(fmt.Sprintf(tr("%s week", "%s 周额度"), model.Name), &model.Percent, model.ResetsAt)
 			}
 		}
 		v.Accounts = append(v.Accounts, row)
@@ -127,13 +123,6 @@ func (q quotaMenuReading) values() string {
 		prefix = tr("Last used", "上次已用")
 	}
 	return fmt.Sprintf(tr("%s %.0f%%   Left %.0f%%", "%s %.0f%%   剩余 %.0f%%"), prefix, *q.Used, math.Max(0, 100-*q.Used))
-}
-
-func (q quotaMenuReading) allowanceText() string {
-	if q.Allowance == nil {
-		return ""
-	}
-	return fmt.Sprintf(tr("Up to %.0f%% of the total week", "上限为总周额度的 %.0f%%"), *q.Allowance)
 }
 
 type quotaMenuAction struct {
@@ -193,9 +182,9 @@ func placeQuotaMenu(work quotaRect, anchorX, anchorY, width, height int) quotaRe
 const (
 	quotaMenuHeaderHeight    = 46
 	quotaMenuFooterHeight    = 74
+	quotaMenuMaxBodyHeight   = 560
 	quotaAccountHeaderHeight = 44
 	quotaReadingHeight       = 34
-	quotaAllowanceHeight     = 20
 )
 
 func quotaAccountHeight(a quotaMenuAccount) int {
@@ -203,12 +192,7 @@ func quotaAccountHeight(a quotaMenuAccount) int {
 	if a.Problem != "" || a.Stale {
 		height += 26
 	}
-	for _, q := range a.Quotas {
-		height += quotaReadingHeight
-		if q.Allowance != nil {
-			height += quotaAllowanceHeight
-		}
-	}
+	height += len(a.Quotas) * quotaReadingHeight
 	return height
 }
 

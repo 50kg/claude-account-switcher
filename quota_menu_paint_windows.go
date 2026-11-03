@@ -223,11 +223,9 @@ func (w *quotaMenuWindow) draw(dc uintptr) {
 		y += height
 	}
 	qmRestoreDC.Call(dc, saved)
-	if w.contentHeight > w.bodyBottom-w.bodyTop {
-		bodyH := w.bodyBottom - w.bodyTop
-		thumb := max(24, bodyH*bodyH/w.contentHeight)
-		top := w.bodyTop + w.scroll*(bodyH-thumb)/max(1, w.contentHeight-bodyH)
-		p.round(quotaRect{w.width - 6, top, 3, thumb}, 3, 0xaeb7c4, 0xaeb7c4)
+	if track, thumb := w.scrollbar(); track.H > 0 {
+		p.round(track, 6, 0xf1f4f8, 0xf1f4f8)
+		p.round(thumb, 6, 0xaeb7c4, 0xaeb7c4)
 	}
 	p.footer()
 	if w.overlay != nil {
@@ -332,9 +330,6 @@ func (p *qmPainter) account(a quotaMenuAccount, y, height int) {
 	for _, q := range a.Quotas {
 		p.quota(q, qy)
 		qy += quotaReadingHeight
-		if q.Allowance != nil {
-			qy += quotaAllowanceHeight
-		}
 	}
 }
 
@@ -383,10 +378,7 @@ func (p *qmPainter) quota(q quotaMenuReading, y int) {
 			p.round(quotaRect{track.X, track.Y, fillW, track.H}, 4, color, color)
 		}
 	}
-	if q.Allowance != nil {
-		p.text(q.allowanceText(), quotaRect{20, y + 30, w.width - 40, 19}, 1, qmMuted, true)
-	}
-	w.addTooltip(quotaRect{20, y, w.width - 40, quotaReadingHeight}, q.Name+" · "+q.Reset+"\n"+q.values()+"\n"+q.allowanceText())
+	w.addTooltip(quotaRect{20, y, w.width - 40, quotaReadingHeight}, q.Name+" · "+q.Reset+"\n"+q.values())
 }
 
 func (p *qmPainter) footer() {
