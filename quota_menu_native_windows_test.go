@@ -284,6 +284,15 @@ func TestNativeQuotaMenuChild(t *testing.T) {
 		t.Fatal("synthetic auto toggle not dispatched")
 	}
 	nativeMenuWait(t, m, func(w *quotaMenuWindow) bool { return m.shown.Load() && w.view.Auto })
+	f.mu.Lock()
+	f.snapshot.Status = accountAddedNotice()
+	f.mu.Unlock()
+	m.update()
+	nativeMenuWait(t, m, func(w *quotaMenuWindow) bool { return w.view.Status == accountAddedNotice() })
+	nativeMenuDo(t, m, func(w *quotaMenuWindow) { imageErr = w.capture(filepath.Join(dir, "native-account-added.png")) })
+	if imageErr != nil {
+		t.Fatal(imageErr)
+	}
 	// Long identities, failed queries and a constrained 150% viewport remain readable.
 	f.mu.Lock()
 	f.snapshot.Accounts[0].Name = "A very long account name with & characters"

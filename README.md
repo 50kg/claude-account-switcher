@@ -98,7 +98,7 @@ Every download has a `.sha256` file next to it, so you can check it is the file 
 
 1. Start the switcher while you are signed in to Claude. It picks up that account within a minute.
 2. Choose **Add account…**. Claude restarts on its sign-in screen. Your first account is kept.
-3. Sign in with the second account. The switcher notices, restarts Claude once more, and the chats of your other account show up.
+3. Sign in with the second account. The switcher registers it and shows a notice without restarting Claude. When you are ready to bring over other accounts' chat entries, select **More → Import chats from all accounts** in the Windows right-click menu (or the import command in the original system menu). Importing restarts Claude; an ordinary account switch also keeps its existing chat synchronization.
 
 From then on, click an account to switch.
 

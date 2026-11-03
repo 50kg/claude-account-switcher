@@ -215,7 +215,7 @@ func (s *switcher) refresh(ctx context.Context) {
 }
 
 // check fetches the usage that is due and saves it. It never restarts Claude,
-// so -status can use it; the switch or import it finds due is returned instead.
+// so -status can use it; an automatic switch it finds due is returned instead.
 func (s *switcher) check(ctx context.Context) (string, func() error) {
 	if s.busy.Load() {
 		return "", nil
@@ -256,23 +256,36 @@ func (s *switcher) check(ctx context.Context) (string, func() error) {
 	}
 
 	lastChat := lastChatWrite(s.app().sessionsDir())
+	return s.afterUsageCheck(added, desktopRunning(), lastChat, time.Now())
+}
+
+func accountAddedNotice() string {
+	return tr("Account added. Use More → Import chats from all accounts.", "账号已添加；聊天请手动导入：更多 → 导入所有账号的聊天。")
+}
+
+// afterUsageCheck finishes registration without restarting the newly signed-in
+// desktop. Existing accounts re-added through the login screen finish too.
+// Only an explicit import or a later account switch may import their chats.
+func (s *switcher) afterUsageCheck(added, running bool, lastChat, now time.Time) (string, func() error) {
 	s.mu.Lock()
 	adding := !s.addingAt.IsZero()
-	if added && adding {
+	completedAdd := adding && s.active != "" && s.account(s.active) != nil
+	if added || completedAdd {
 		s.addingAt = time.Time{}
-	} else if adding && time.Since(s.addingAt) > 15*time.Minute {
+		s.status = accountAddedNotice()
+	} else if adding && now.Sub(s.addingAt) > 15*time.Minute {
 		s.addingAt, s.status = time.Time{}, ""
 	}
 	s.saveState()
-	target, cause := s.autoTarget(desktopRunning(), lastChat, time.Now())
+	var target *Account
+	var cause switchCause
+	if !added && !completedAdd {
+		target, cause = s.autoTarget(running, lastChat, now)
+	}
 	s.mu.Unlock()
 	s.onChange()
 
-	switch {
-	case added && adding:
-		// A fresh sign-in: restart once so the chats of the other accounts show up.
-		return tr("Importing chats", "导入聊天"), s.importChats
-	case target != nil:
+	if target != nil {
 		return tr("Auto switch", "自动切换"), func() error { return s.switchTo(target.UUID, cause) }
 	}
 	return "", nil
