@@ -40,10 +40,10 @@ Every pull request runs vet and tests on Windows and macOS.
 
 These keep the tool safe to run on someone's real sign-ins:
 
-- **Tokens never leave the machine** except to `api.anthropic.com`. Never log them, never write them in plain text.
+- **Tokens stay encrypted in app-managed storage** and are never logged or sent anywhere except `api.anthropic.com`. This Chinese maintenance fork has one opt-in exception: the user-created `.cas-account` migration file is deliberately unencrypted, must contain only the selected account, and must show a clear warning every time.
 - **Touch only what you must.** The switcher changes three `config.json` entries and the cookie file. Everything else in Claude's data stays as it is.
 - **Fail loudly, restore the backup.** If Claude's files do not look as expected, stop, put the backup back and show the error in the menu. Do not guess.
-- **No new dependencies** without talking about it in an issue first.
+- **Keep dependencies deliberate.** The Windows account-transfer feature in this maintenance fork uses `modernc.org/sqlite` to re-encrypt Cookie data without CGO. Do not add other dependencies without talking about them in an issue first.
 
 ## Pull requests
 

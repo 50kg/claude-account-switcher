@@ -19,6 +19,7 @@ type quotaMenu interface {
 type quotaMenuView struct {
 	Accounts                   []quotaMenuAccount
 	Active, Status, Update     string
+	SortMode                   string
 	Busy, Auto, Spend, Startup bool
 	Threshold                  float64
 	RefreshMinutes             int
@@ -36,6 +37,7 @@ type quotaMenuReading struct {
 	Name, Reset string
 	Used        *float64
 	Stale       bool
+	ResetAt     time.Time
 }
 
 func makeQuotaMenuView(s snapshot, startup bool, now time.Time) quotaMenuView {
@@ -62,7 +64,7 @@ func makeQuotaMenuView(s snapshot, startup bool, now time.Time) quotaMenuView {
 			row.Plan = tr("Enterprise", "企业版")
 		}
 		add := func(name string, used *float64, at time.Time) {
-			q := quotaMenuReading{Name: name, Reset: quotaResetText(at, now), Stale: row.Stale || (!at.IsZero() && !at.After(now))}
+			q := quotaMenuReading{Name: name, Reset: quotaResetText(at, now), ResetAt: at, Stale: row.Stale || (!at.IsZero() && !at.After(now))}
 			if used != nil && validQuotaPercent(*used) {
 				value := *used
 				q.Used = &value
@@ -126,6 +128,8 @@ func (q quotaMenuReading) values() string {
 
 type quotaMenuAction struct {
 	Kind, Account, Active string
+	SortMode              string
+	AccountOrder          []string
 	Enabled, Confirmed    bool
 	Minutes               int
 	Threshold             float64
@@ -162,6 +166,39 @@ func validateQuotaMenuAction(a quotaMenuAction, s snapshot) error {
 		if !validRefreshMinutes(a.Minutes) {
 			return reject()
 		}
+	case "sort":
+		if !validQuotaMenuSortMode(a.SortMode) {
+			return reject()
+		}
+	case "order":
+		if len(a.AccountOrder) > 8192 {
+			return reject()
+		}
+		known := make(map[string]bool, len(s.Accounts))
+		for _, account := range s.Accounts {
+			known[account.UUID] = true
+		}
+		seen := make(map[string]bool, len(a.AccountOrder))
+		for _, id := range a.AccountOrder {
+			if id == "" || !known[id] || seen[id] {
+				return reject()
+			}
+			seen[id] = true
+		}
+	case "account-import":
+		if s.Busy || s.Syncing {
+			return reject()
+		}
+	case "account-export":
+		if s.Busy || s.Syncing || a.Account == "" {
+			return reject()
+		}
+		for _, account := range s.Accounts {
+			if account.UUID == a.Account {
+				return nil
+			}
+		}
+		return reject()
 	case "sync":
 		if s.Busy || s.Syncing || len(s.Accounts) == 0 {
 			return reject()
@@ -171,6 +208,49 @@ func validateQuotaMenuAction(a quotaMenuAction, s snapshot) error {
 		return reject()
 	}
 	return nil
+}
+
+func applyQuotaMenuPreferences(accounts []quotaMenuAccount, preferences quotaMenuPreferences, now time.Time) []quotaMenuAccount {
+	ordered := append([]quotaMenuAccount(nil), accounts...)
+	if preferences.SortMode == "reset" {
+		sort.SliceStable(ordered, func(i, j int) bool {
+			if ordered[i].Current != ordered[j].Current {
+				return ordered[i].Current
+			}
+			a, b := nextQuotaReset(ordered[i], now), nextQuotaReset(ordered[j], now)
+			if a.IsZero() != b.IsZero() {
+				return !a.IsZero()
+			}
+			return !a.IsZero() && a.Before(b)
+		})
+		return ordered
+	}
+	if len(preferences.AccountOrder) == 0 {
+		return ordered
+	}
+	rank := make(map[string]int, len(preferences.AccountOrder))
+	for i, id := range preferences.AccountOrder {
+		rank[id] = i
+	}
+	sort.SliceStable(ordered, func(i, j int) bool {
+		ri, iok := rank[ordered[i].ID]
+		rj, jok := rank[ordered[j].ID]
+		if iok != jok {
+			return iok
+		}
+		return iok && ri < rj
+	})
+	return ordered
+}
+
+func nextQuotaReset(account quotaMenuAccount, now time.Time) time.Time {
+	var next time.Time
+	for _, quota := range account.Quotas {
+		if quota.ResetAt.After(now) && (next.IsZero() || quota.ResetAt.Before(next)) {
+			next = quota.ResetAt
+		}
+	}
+	return next
 }
 
 // Both drawing and input use these same logical rectangles.

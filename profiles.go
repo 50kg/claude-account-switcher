@@ -11,7 +11,8 @@ import (
 
 // A profile is a saved sign-in: the account's config.json entries and the
 // app's cookie store. Tokens stay encrypted by the app's own key, the
-// switcher never writes them in plain text.
+// ordinary profiles never write them in plain text. The Windows fork's
+// explicit, user-created account migration export is a separate exception.
 
 // saveProfile copies the current sign-in into dir. The app must be closed.
 func saveProfile(d desktop, dir string) error {

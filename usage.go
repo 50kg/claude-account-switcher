@@ -63,7 +63,7 @@ type profile struct {
 // account flags are only a fallback.
 func (p profile) plan() string {
 	switch t := strings.TrimPrefix(p.Organization.Type, "claude_"); {
-	case t == "max" || t == "pro" || t == "team" || t == "enterprise":
+	case t == "max" || t == "pro" || t == "ultra" || t == "team" || t == "enterprise":
 		return strings.ToUpper(t[:1]) + t[1:]
 	case p.Account.HasMax:
 		return "Max"

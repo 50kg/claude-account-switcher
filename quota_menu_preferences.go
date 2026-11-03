@@ -14,8 +14,10 @@ const quotaMenuMinHeight = 244
 // UI preferences live separately from account state, credentials and chats.
 // Heights use 96-DPI logical pixels so another display can clamp them safely.
 type quotaMenuPreferences struct {
-	Height         int `json:"menuHeight"`
-	RefreshMinutes int `json:"refreshMinutes,omitempty"`
+	Height         int      `json:"menuHeight"`
+	RefreshMinutes int      `json:"refreshMinutes,omitempty"`
+	SortMode       string   `json:"sortMode,omitempty"`
+	AccountOrder   []string `json:"accountOrder,omitempty"`
 }
 
 func validQuotaMenuHeight(height int) bool {
@@ -25,6 +27,24 @@ func validQuotaMenuHeight(height int) bool {
 var quotaPreferencesMu sync.Mutex
 
 func validRefreshMinutes(minutes int) bool { return minutes >= 0 && minutes <= 1440 }
+
+func validQuotaMenuSortMode(mode string) bool {
+	return mode == "" || mode == "manual" || mode == "reset"
+}
+
+func validQuotaMenuAccountOrder(order []string) bool {
+	if len(order) > 8192 {
+		return false
+	}
+	seen := make(map[string]bool, len(order))
+	for _, id := range order {
+		if id == "" || len(id) > 256 || seen[id] {
+			return false
+		}
+		seen[id] = true
+	}
+	return true
+}
 
 func loadQuotaMenuHeight(path string) (int, error) {
 	p, err := loadQuotaMenuPreferences(path)
@@ -49,12 +69,12 @@ func readQuotaMenuPreferences(path string) (quotaMenuPreferences, error) {
 		return quotaMenuPreferences{}, err
 	}
 	defer f.Close()
-	data, err := io.ReadAll(io.LimitReader(f, 4097))
+	data, err := io.ReadAll(io.LimitReader(f, (1<<20)+1))
 	if err != nil {
 		return quotaMenuPreferences{}, err
 	}
 	var p quotaMenuPreferences
-	if len(data) > 4096 || json.Unmarshal(data, &p) != nil || !validQuotaMenuHeight(p.Height) || !validRefreshMinutes(p.RefreshMinutes) {
+	if len(data) > 1<<20 || json.Unmarshal(data, &p) != nil || !validQuotaMenuHeight(p.Height) || !validRefreshMinutes(p.RefreshMinutes) || !validQuotaMenuSortMode(p.SortMode) || !validQuotaMenuAccountOrder(p.AccountOrder) {
 		return quotaMenuPreferences{}, errors.New(tr("Invalid interface preferences", "界面设置无效"))
 	}
 	return p, nil
@@ -72,6 +92,23 @@ func saveRefreshMinutes(path string, minutes int) error {
 		return errors.New(tr("Enter 1–1440 minutes", "请输入1–1440分钟"))
 	}
 	return updateQuotaMenuPreferences(path, func(p *quotaMenuPreferences) { p.RefreshMinutes = minutes })
+}
+
+func saveQuotaMenuSortMode(path, mode string) error {
+	if !validQuotaMenuSortMode(mode) || mode == "" {
+		return errors.New(tr("Invalid account order", "无效的账号排序方式"))
+	}
+	return updateQuotaMenuPreferences(path, func(p *quotaMenuPreferences) { p.SortMode = mode })
+}
+
+func saveQuotaMenuAccountOrder(path string, order []string) error {
+	if !validQuotaMenuAccountOrder(order) {
+		return errors.New(tr("Invalid account order", "无效的账号顺序"))
+	}
+	return updateQuotaMenuPreferences(path, func(p *quotaMenuPreferences) {
+		p.AccountOrder = append([]string(nil), order...)
+		p.SortMode = "manual"
+	})
 }
 
 func updateQuotaMenuPreferences(path string, update func(*quotaMenuPreferences)) error {

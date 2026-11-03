@@ -42,7 +42,7 @@ func newQuotaMenuFixture() *quotaMenuFixture {
 	}{
 		{"synthetic-riley", "Riley Chen", "riley.chen@example.com", "Max", 67, 67, 100, time.Date(2026, 11, 3, 20, 0, 0, 0, time.Local)},
 		{"synthetic-alex", "Alex Lin", "alex.lin@example.com", "Pro", 20, 34, 40, time.Date(2026, 11, 5, 20, 0, 0, 0, time.Local)},
-		{"synthetic-jordan", "Jordan Wu", "jordan.wu@example.com", "Max", 85, 42, 76, time.Date(2026, 11, 6, 9, 0, 0, 0, time.Local)},
+		{"synthetic-jordan", "Jordan Wu", "jordan.wu@example.com", "Ultra", 85, 42, 76, time.Date(2026, 11, 6, 9, 0, 0, 0, time.Local)},
 	} {
 		at := now.Add(time.Duration([]int{40, 220, 130}[i]) * time.Minute)
 		f.snapshot.Accounts = append(f.snapshot.Accounts, Account{UUID: a.id, Name: a.name, Email: a.email, Plan: a.plan, Usage: &Usage{Session: a.session, Weekly: a.week, SessionReset: at, WeeklyReset: a.reset, CheckedAt: now, ModelWeekly: []ModelWeeklyUsage{{Name: "Fable", Percent: a.model, ResetsAt: a.reset, AllowancePercent: &allowance}}}})
@@ -245,7 +245,7 @@ func TestNativeQuotaMenuChild(t *testing.T) {
 		return v != 0 && len(w.hits) > 0 && len(w.view.Accounts) == 3
 	})
 	nativeMenuDo(t, m, func(w *quotaMenuWindow) {
-		auto, threshold, settings, toolbar := 0, 0, 0, 0
+		auto, threshold, settings, ordering, toolbar := 0, 0, 0, 0, 0
 		for _, h := range w.hits {
 			if h.Action.Kind == "auto" {
 				auto++
@@ -256,6 +256,12 @@ func TestNativeQuotaMenuChild(t *testing.T) {
 			if h.Popup == "settings" {
 				settings++
 			}
+			if h.Popup == "sort" {
+				ordering++
+				if h.Rect.Y+h.Rect.H > quotaMenuHeaderHeight {
+					t.Error("account order control is outside the header")
+				}
+			}
 			if h.Rect.Y >= w.bodyBottom+35 {
 				toolbar++
 			}
@@ -263,8 +269,8 @@ func TestNativeQuotaMenuChild(t *testing.T) {
 				t.Error("removed More entry is still visible")
 			}
 		}
-		if auto != 1 || threshold != 1 || settings != 1 || toolbar != 3 {
-			t.Errorf("unexpected main menu controls: auto=%d threshold=%d settings=%d toolbar=%d", auto, threshold, settings, toolbar)
+		if auto != 1 || threshold != 1 || settings != 1 || ordering != 1 || toolbar != 3 {
+			t.Errorf("unexpected main menu controls: auto=%d threshold=%d settings=%d order=%d toolbar=%d", auto, threshold, settings, ordering, toolbar)
 		}
 	})
 	dir := os.Getenv("QUOTA_MENU_EVIDENCE")
@@ -279,6 +285,19 @@ func TestNativeQuotaMenuChild(t *testing.T) {
 	if imageErr != nil {
 		t.Fatal(imageErr)
 	}
+	nativeMenuClickHit(t, m, func(h quotaMenuHit) bool { return h.Popup == "sort" })
+	nativeMenuWait(t, m, func(w *quotaMenuWindow) bool { return w.overlay != nil && w.overlay.Kind == "sort" })
+	nativeMenuDo(t, m, func(w *quotaMenuWindow) {
+		imageErr = w.capture(filepath.Join(dir, "native-header-sort.png"))
+		if w.overlay.Rect.Y < quotaMenuHeaderHeight {
+			t.Error("account order popup overlaps its header control")
+		}
+		procSendMessage.Call(w.hwnd, 0x100, 27, 0)
+	})
+	if imageErr != nil {
+		t.Fatal(imageErr)
+	}
+	nativeMenuWait(t, m, func(w *quotaMenuWindow) bool { return w.overlay == nil })
 	// Read-only body clicks never reach the account action callback.
 	nativeMenuClick(t, m, 36, 120)
 	if len(f.actions) != 0 || !m.shown.Load() {
@@ -389,8 +408,8 @@ func TestNativeQuotaMenuChild(t *testing.T) {
 			}
 			counts[h.Action.Kind]++
 		}
-		if len(w.hits) != 7 {
-			t.Errorf("settings has %d actions, want seven", len(w.hits))
+		if len(w.hits) != 8 {
+			t.Errorf("settings has %d actions, want eight", len(w.hits))
 		}
 		for _, kind := range []string{"spend", "autostart", "import", "folder", "update", "sync"} {
 			if counts[kind] != 1 {
@@ -647,7 +666,7 @@ func TestNativeQuotaMenuChild(t *testing.T) {
 	nativeMenuDo(t, m, func(w *quotaMenuWindow) {
 		imageErr = w.capture(filepath.Join(dir, "native-settings-empty.png"))
 		r := w.overlay.Rect
-		if r.Y < 0 || r.Y+r.H > w.height || len(w.hits) != 6 {
+		if r.Y < 0 || r.Y+r.H > w.height || len(w.hits) != 7 {
 			t.Error("combined settings clipped its actions in an empty account list")
 		}
 		procSendMessage.Call(w.hwnd, 0x100, 36, 0)

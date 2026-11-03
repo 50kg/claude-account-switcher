@@ -1,4 +1,5 @@
 *.exe
+*.exe~
 /claude-account-switcher
 /dist/
 *.syso

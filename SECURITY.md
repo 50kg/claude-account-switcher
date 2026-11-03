@@ -13,7 +13,8 @@ Include what you found, how to reproduce it, and which version you tested. You s
 
 Anything that could expose or misuse a saved sign-in, for example:
 
-- Tokens or cookies written in plain text, logged, or sent anywhere other than `api.anthropic.com`
+- Tokens or cookies written in plain text outside the explicitly user-created `.cas-account` export, logged, or sent anywhere other than `api.anthropic.com`
+- The Chinese maintenance fork's user-created `.cas-account` file is intentionally unencrypted. Report any export that omits its warning, includes another account or chats, writes outside the path selected by the user, or leaves an unintended plaintext temporary file.
 - Other users or programs on the machine being able to read the saved sign-ins more easily than Claude's own files
 - A release binary that does not match its `.sha256` file or the source
 

@@ -286,6 +286,14 @@ func (t *tray) handleQuotaMenuAction(action quotaMenuAction) error {
 		t.s.setThreshold(action.Threshold)
 	case "interval":
 		return t.s.setRefreshMinutes(action.Minutes)
+	case "sort":
+		return saveQuotaMenuSortMode(filepath.Join(t.s.dir, "ui.json"), action.SortMode)
+	case "order":
+		return saveQuotaMenuAccountOrder(filepath.Join(t.s.dir, "ui.json"), action.AccountOrder)
+	case "account-export":
+		return handleAccountExport(t.s, action.Account)
+	case "account-import":
+		return handleAccountImport(t.s)
 	case "sync":
 		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 		defer cancel()

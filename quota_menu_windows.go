@@ -260,11 +260,18 @@ type quotaMenuHit struct {
 
 type quotaMenuOverlay struct {
 	Kind              string
+	Account           string
 	Anchor            quotaRect
 	Rect              quotaRect
 	Confirm           quotaMenuAction
 	Input, Error      string
 	SelectAll, Saving bool
+}
+
+type quotaMenuOrderDrag struct {
+	Source, Slot int
+	Start        qmPoint
+	Active       bool
 }
 
 type quotaMenuChoice struct {
@@ -289,6 +296,8 @@ type quotaMenuWindow struct {
 	scrollDragOffset, wheelRemainder                               int
 	preferredHeight                                                int
 	heightDrag                                                     *quotaMenuHeightDrag
+	orderDrag                                                      *quotaMenuOrderDrag
+	orderSaving                                                    bool
 	overlay                                                        *quotaMenuOverlay
 	dismiss                                                        quotaMenuDismissal
 	tooltip                                                        uintptr
@@ -352,6 +361,10 @@ func quotaMenuWindowProc(hwnd, msg, wp, lp uintptr) uintptr {
 			}
 			return 0
 		}
+		if w.orderDrag != nil {
+			w.updateAccountOrderDrag(int(int16(lp&0xffff))*96/w.dpi, int(int16(lp>>16))*96/w.dpi)
+			return 0
+		}
 		w.hover = w.hit(int(int16(lp&0xffff))*96/w.dpi, int(int16(lp>>16))*96/w.dpi)
 		w.invalidate()
 		return 0
@@ -359,6 +372,10 @@ func quotaMenuWindowProc(hwnd, msg, wp, lp uintptr) uintptr {
 		x, y := int(int16(lp&0xffff))*96/w.dpi, int(int16(lp>>16))*96/w.dpi
 		if edge := w.heightEdge(x, y); edge != 0 {
 			w.beginHeightDrag(edge, qmPoint{X: int32(int16(lp & 0xffff)), Y: int32(int16(lp >> 16))})
+			return 0
+		}
+		if index := w.accountDragHandleAt(x, y); index >= 0 {
+			w.beginAccountOrderDrag(index, qmPoint{X: int32(x), Y: int32(y)})
 			return 0
 		}
 		if track, thumb := w.scrollbar(); w.overlay == nil && track.contains(x, y) {
@@ -386,6 +403,10 @@ func quotaMenuWindowProc(hwnd, msg, wp, lp uintptr) uintptr {
 			w.stopScrollDrag()
 			return 0
 		}
+		if w.orderDrag != nil {
+			w.finishAccountOrderDrag(true)
+			return 0
+		}
 		i := w.hit(int(int16(lp&0xffff))*96/w.dpi, int(int16(lp>>16))*96/w.dpi)
 		if i >= 0 && i == w.pressed {
 			w.activate(w.hits[i])
@@ -405,11 +426,13 @@ func quotaMenuWindowProc(hwnd, msg, wp, lp uintptr) uintptr {
 		return 0
 	case 0x215: // WM_CAPTURECHANGED
 		w.scrollDragging = false
+		w.finishAccountOrderDrag(false)
 		w.finishHeightDrag(true)
 		return 0
 	case 0x1F: // WM_CANCELMODE
 		w.finishHeightDrag(true)
 		w.stopScrollDrag()
+		w.finishAccountOrderDrag(false)
 		return 0
 	case 0x203: // WM_LBUTTONDBLCLK
 		if w.heightEdge(int(int16(lp&0xffff))*96/w.dpi, int(int16(lp>>16))*96/w.dpi) != 0 {
@@ -420,8 +443,14 @@ func quotaMenuWindowProc(hwnd, msg, wp, lp uintptr) uintptr {
 		var p qmPoint
 		qmGetCursorPos.Call(uintptr(unsafe.Pointer(&p)))
 		qmScreenClient.Call(w.hwnd, uintptr(unsafe.Pointer(&p)))
-		if w.heightDrag != nil || w.heightEdge(int(p.X)*96/w.dpi, int(p.Y)*96/w.dpi) != 0 {
+		cx, cy := int(p.X)*96/w.dpi, int(p.Y)*96/w.dpi
+		if w.heightDrag != nil || w.heightEdge(cx, cy) != 0 {
 			w.resizeCursor()
+			return 1
+		}
+		if w.orderDrag != nil || w.accountDragHandleAt(cx, cy) >= 0 {
+			cursor, _, _ := qmLoadCursor.Call(0, 32646) // IDC_SIZEALL
+			qmSetCursor.Call(cursor)
 			return 1
 		}
 	case 0x100: // WM_KEYDOWN
@@ -497,6 +526,7 @@ func quotaMenuWindowProc(hwnd, msg, wp, lp uintptr) uintptr {
 		if closing {
 			w.finishHeightDrag(true)
 			w.stopScrollDrag()
+			w.finishAccountOrderDrag(false)
 			qmDestroyWindow.Call(hwnd)
 		} else {
 			w.hide()
@@ -540,6 +570,13 @@ func (w *quotaMenuWindow) input() quotaMenuInput {
 
 func (w *quotaMenuWindow) reload(show bool) {
 	w.view = w.menu.view()
+	if preferences, err := loadQuotaMenuPreferences(w.menu.preferencesPath); err == nil {
+		w.view.SortMode = preferences.SortMode
+		if w.view.SortMode == "" {
+			w.view.SortMode = "manual"
+		}
+		w.view.Accounts = applyQuotaMenuPreferences(w.view.Accounts, preferences, time.Now())
+	}
 	if show {
 		qmGetCursorPos.Call(uintptr(unsafe.Pointer(&w.anchor)))
 		w.scroll, w.focus, w.hover, w.pressed = 0, -1, -1, -1
@@ -618,6 +655,7 @@ func (w *quotaMenuWindow) reload(show bool) {
 func (w *quotaMenuWindow) hide() {
 	w.finishHeightDrag(true)
 	w.stopScrollDrag()
+	w.finishAccountOrderDrag(false)
 	procKillTimer.Call(w.hwnd, 2)
 	qmShowWindow.Call(w.hwnd, 0)
 	w.menu.shown.Store(false)
@@ -677,7 +715,7 @@ func (w *quotaMenuWindow) activate(hit quotaMenuHit) {
 		return
 	}
 	if hit.Popup != "" {
-		w.overlay = &quotaMenuOverlay{Kind: hit.Popup, Anchor: hit.Rect}
+		w.overlay = &quotaMenuOverlay{Kind: hit.Popup, Account: hit.Action.Account, Anchor: hit.Rect}
 		w.focus, w.hover, w.pressed = -1, -1, -1
 		if hit.Popup == "interval" {
 			w.openInterval()
@@ -700,7 +738,7 @@ func (w *quotaMenuWindow) activate(hit quotaMenuHit) {
 		w.invalidate()
 		return
 	}
-	keepOpen := a.Kind == "auto" || a.Kind == "spend" || a.Kind == "threshold" || a.Kind == "autostart" || a.Kind == "sync"
+	keepOpen := a.Kind == "auto" || a.Kind == "spend" || a.Kind == "threshold" || a.Kind == "autostart" || a.Kind == "sync" || a.Kind == "sort"
 	w.closeOverlay()
 	if !keepOpen {
 		w.hide()
@@ -726,16 +764,34 @@ func (w *quotaMenuWindow) choices(kind string) []quotaMenuChoice {
 		if title == "" {
 			title = tr("Check for updates", "检查更新")
 		}
-		return []quotaMenuChoice{
+		choices := []quotaMenuChoice{
 			{Label: tr("Use expiring weekly allowance", "优先使用即将重置的周额度"), Checked: w.view.Spend, Action: quotaMenuAction{Kind: "spend", Enabled: !w.view.Spend}},
 			{Label: tr("Start at login", "开机启动"), Checked: w.view.Startup, Action: quotaMenuAction{Kind: "autostart", Enabled: !w.view.Startup}},
 			{Label: refreshIntervalText(w.view.RefreshMinutes), Popup: "interval"},
-			{Separator: true},
-			{Label: syncLabel, Disabled: w.view.Busy || len(w.view.Accounts) == 0, Action: quotaMenuAction{Kind: "sync"}},
-			{Label: tr("Import chats from all accounts…", "导入所有账号的聊天…"), Disabled: w.view.Busy, Action: quotaMenuAction{Kind: "import", Active: w.view.Active}},
-			{Label: tr("Open data folder", "打开数据文件夹"), Action: quotaMenuAction{Kind: "folder"}},
-			{Label: title, Action: quotaMenuAction{Kind: "update"}},
 		}
+		choices = append(choices,
+			quotaMenuChoice{Separator: true},
+			quotaMenuChoice{Label: tr("Import one account…", "导入单个账号…"), Disabled: w.view.Busy, Action: quotaMenuAction{Kind: "account-import"}},
+			quotaMenuChoice{Label: syncLabel, Disabled: w.view.Busy || len(w.view.Accounts) == 0, Action: quotaMenuAction{Kind: "sync"}},
+			quotaMenuChoice{Label: tr("Import chats from all accounts…", "导入所有账号的聊天…"), Disabled: w.view.Busy, Action: quotaMenuAction{Kind: "import", Active: w.view.Active}},
+			quotaMenuChoice{Label: tr("Open data folder", "打开数据文件夹"), Action: quotaMenuAction{Kind: "folder"}},
+			quotaMenuChoice{Label: title, Action: quotaMenuAction{Kind: "update"}},
+		)
+		return choices
+	case "sort":
+		return []quotaMenuChoice{
+			{Label: tr("Manual · drag to reorder", "手动排序（拖动调整）"), Checked: w.view.SortMode != "reset", Disabled: w.orderSaving, Action: quotaMenuAction{Kind: "sort", SortMode: "manual"}},
+			{Label: tr("Soonest reset · current account first", "按最近重置时间（当前账号置顶）"), Checked: w.view.SortMode == "reset", Disabled: w.orderSaving, Action: quotaMenuAction{Kind: "sort", SortMode: "reset"}},
+		}
+	case "account-actions":
+		name := tr("this account", "此账号")
+		for _, account := range w.view.Accounts {
+			if account.ID == w.overlay.Account {
+				name = account.Name
+				break
+			}
+		}
+		return []quotaMenuChoice{{Label: fmt.Sprintf(tr("Export %s (unencrypted)…", "导出 %s（明文）…"), name), Disabled: w.view.Busy, Action: quotaMenuAction{Kind: "account-export", Account: w.overlay.Account}}}
 	case "threshold":
 		var choices []quotaMenuChoice
 		for _, value := range thresholds {

@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -72,4 +73,25 @@ func decryptValue(data []byte) ([]byte, error) {
 		return nil, err
 	}
 	return gcm.Open(nil, data[3:15], data[15:], nil)
+}
+
+func encryptValue(plain []byte) ([]byte, error) {
+	key, err := appKey()
+	if err != nil {
+		return nil, err
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, err
+	}
+	out := append([]byte("v10"), nonce...)
+	return gcm.Seal(out, nonce, plain, nil), nil
 }

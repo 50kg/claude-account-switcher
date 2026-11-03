@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"runtime"
+	"strings"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -41,12 +42,13 @@ var (
 )
 
 const (
-	qmInk   = 0x202630
-	qmMuted = 0x616b78
-	qmLine  = 0xe6eaf0
-	qmBlue  = 0x367de5
-	qmTrack = 0xe9eef5
-	qmWhite = 0xffffff
+	qmInk          = 0x202630
+	qmMuted        = 0x616b78
+	qmLine         = 0xe6eaf0
+	qmBlue         = 0x367de5
+	qmTrack        = 0xe9eef5
+	qmWhite        = 0xffffff
+	qmAlternateRow = 0xf1f4f8
 )
 
 type qmPaintStruct struct {
@@ -208,7 +210,12 @@ func (w *quotaMenuWindow) draw(dc uintptr) {
 	resizeHint := tr("Drag the top or bottom edge to resize; double-click to reset", "拖动顶部或底部边缘调整高度；双击恢复默认")
 	w.addFixedTooltip(quotaRect{1, 0, w.width - 2, 7}, resizeHint)
 	w.addFixedTooltip(quotaRect{1, w.height - 6, w.width - 2, 6}, resizeHint)
-	p.text(tr("Claude Account Switcher", "Claude 账号切换器"), quotaRect{20, 8, 280, 30}, 2, qmInk, false)
+	sortLabel := tr("Account order ▾", "账号排序 ▾")
+	sortWidth := p.measure(sortLabel, 1) + 20
+	sortRect := quotaRect{w.width - 20 - sortWidth, 10, sortWidth, 27}
+	title := tr("Claude Account Switcher", "Claude 账号切换器")
+	titleWidth := min(p.measure(title, 2), max(0, sortRect.X-20-145))
+	p.text(title, quotaRect{20, 8, titleWidth, 30}, 2, qmInk, false)
 	updated := tr("Waiting for usage", "等待用量更新")
 	if !w.view.Updated.IsZero() {
 		updated = fmt.Sprintf(tr("%d accounts · %s", "%d个账号 · %s 更新"), len(w.view.Accounts), w.view.Updated.Local().Format("15:04"))
@@ -216,7 +223,16 @@ func (w *quotaMenuWindow) draw(dc uintptr) {
 	if w.view.Syncing {
 		updated = tr("Syncing usage…", "正在同步用量…")
 	}
-	p.text(updated, quotaRect{300, 9, w.width - 320, 27}, 1, qmMuted, true)
+	updatedX := 20 + titleWidth + 12
+	p.text(updated, quotaRect{updatedX, 9, max(0, sortRect.X-updatedX-12), 27}, 1, qmMuted, true)
+	sortColor := uint32(qmInk)
+	if len(w.view.Accounts) < 2 || w.orderSaving {
+		sortColor = qmMuted
+	} else {
+		w.addHit(quotaMenuHit{Rect: sortRect, Popup: "sort"}, false)
+	}
+	p.round(sortRect, 5, qmWhite, 0xd2d9e3)
+	p.centeredText(sortLabel, sortRect, 1, sortColor)
 	p.fill(quotaRect{1, quotaMenuHeaderHeight - 1, w.width - 2, 1}, qmLine)
 	if w.view.Status != "" {
 		p.fill(quotaRect{1, quotaMenuHeaderHeight, w.width - 2, 30}, 0xfaf7ef)
@@ -229,13 +245,14 @@ func (w *quotaMenuWindow) draw(dc uintptr) {
 	if len(w.view.Accounts) == 0 {
 		p.text(tr("Open Claude and sign in to add an account", "请先在Claude中登录账号"), quotaRect{20, y + 25, w.width - 40, 30}, 0, qmMuted, false)
 	}
-	for _, a := range w.view.Accounts {
+	for index, a := range w.view.Accounts {
 		height := quotaAccountHeight(a)
 		if y+height > w.bodyTop && y < w.bodyBottom {
-			p.account(a, y, height)
+			p.account(a, index, y, height)
 		}
 		y += height
 	}
+	w.drawAccountOrderDrag(p)
 	qmRestoreDC.Call(dc, saved)
 	if track, thumb := w.scrollbar(); track.H > 0 {
 		p.round(track, 6, 0xf1f4f8, 0xf1f4f8)
@@ -274,11 +291,11 @@ func (w *quotaMenuWindow) addHit(hit quotaMenuHit, body bool) {
 	}
 }
 
-func (p *qmPainter) account(a quotaMenuAccount, y, height int) {
+func (p *qmPainter) account(a quotaMenuAccount, index, y, height int) {
 	w := p.w
 	bg := uint32(qmWhite)
-	if a.Current {
-		bg = 0xf9fbff
+	if index%2 == 1 {
+		bg = qmAlternateRow
 	}
 	p.fill(quotaRect{1, y, w.width - 2, height}, bg)
 	p.fill(quotaRect{1, y + height - 1, w.width - 2, 1}, qmLine)
@@ -287,17 +304,40 @@ func (p *qmPainter) account(a quotaMenuAccount, y, height int) {
 		buttonW = 102
 	}
 	buttonRect := quotaRect{w.width - 20 - buttonW, y + 9, buttonW, 27}
-	leftEnd := buttonRect.X - 10
+	actionsRect := quotaRect{buttonRect.X - 36, buttonRect.Y, 28, buttonRect.H}
+	if w.view.SortMode != "reset" {
+		for _, dy := range []int{18, 22, 26} {
+			for _, dx := range []int{8, 13} {
+				p.round(quotaRect{dx, y + dy, 2, 2}, 2, 0x98a3b2, 0x98a3b2)
+			}
+		}
+		w.addTooltip(quotaRect{6, y + 13, 13, 16}, tr("Drag to reorder accounts", "拖动调整账号顺序"))
+	}
+	leftEnd := actionsRect.X - 8
 	identityWidth := leftEnd - 20
 	emailW := min(p.measure(a.Email, 1), max(65, identityWidth-96))
-	planW := p.measure(a.Plan, 1)
+	planW := 0
+	if a.Plan != "" {
+		planW = min(100, p.measure(a.Plan, 3)+14)
+	}
 	nameW := min(p.measure(a.Name, 2), max(35, identityWidth-emailW-planW-18))
 	p.text(a.Name, quotaRect{20, y + 9, nameW, 27}, 2, qmInk, false)
 	x := 20 + nameW + 9
-	p.text(a.Plan, quotaRect{x, y + 9, planW, 27}, 1, qmMuted, false)
-	x += planW + 8
+	if planW > 0 {
+		foreground, background, border := quotaPlanColors(a.Plan)
+		badge := quotaRect{x, y + 12, planW, 21}
+		p.round(badge, 6, background, border)
+		p.centeredText(a.Plan, quotaRect{badge.X + 6, badge.Y, badge.W - 12, badge.H}, 3, foreground)
+		x += planW + 8
+	}
 	p.text(a.Email, quotaRect{x, y + 9, max(0, leftEnd-x), 27}, 1, qmMuted, false)
 	w.addTooltip(quotaRect{20, y + 7, max(1, leftEnd-20), 31}, a.Name+"\n"+a.Plan+"\n"+a.Email)
+	p.round(actionsRect, 5, qmWhite, 0xd2d9e3)
+	p.centeredText("⋯", actionsRect, 2, qmInk)
+	w.addTooltip(actionsRect, tr("Account actions", "账号操作"))
+	if !w.view.Busy {
+		w.addHit(quotaMenuHit{Rect: actionsRect, Popup: "account-actions", Action: quotaMenuAction{Account: a.ID}}, true)
+	}
 	if a.Current {
 		p.round(buttonRect, 4, 0xeaf1fd, 0xeaf1fd)
 		p.centeredText(tr("✓ Current", "✓ 当前账号"), buttonRect, 1, 0x215daa)
@@ -325,6 +365,19 @@ func (p *qmPainter) account(a quotaMenuAccount, y, height int) {
 	for _, q := range a.Quotas {
 		p.quota(q, qy)
 		qy += quotaReadingHeight
+	}
+}
+
+func quotaPlanColors(plan string) (foreground, background, border uint32) {
+	switch strings.ToLower(strings.TrimSpace(plan)) {
+	case "pro":
+		return 0x1d4ed8, 0xeaf2ff, 0xcbdfff
+	case "max":
+		return 0x6d28d9, 0xf2ebff, 0xe0d3fb
+	case "ultra":
+		return 0x9a4a08, 0xfff3db, 0xf1d79b
+	default:
+		return 0x566274, 0xf0f3f7, 0xdde3eb
 	}
 }
 

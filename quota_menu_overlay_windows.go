@@ -20,13 +20,21 @@ func (p *qmPainter) overlay() {
 	width := min(languageOffset(360, 314), w.width-24)
 	height := quotaChoicesHeight(choices)
 	x := max(12, min(o.Anchor.X, w.width-width-12))
-	y := max(8, min(o.Anchor.Y-height-6, w.height-height-8))
+	y := o.Anchor.Y - height - 6
+	if o.Anchor.Y < quotaMenuHeaderHeight {
+		y = max(quotaMenuHeaderHeight+4, o.Anchor.Y+o.Anchor.H+6)
+	}
+	y = max(8, min(y, w.height-height-8))
 	o.Rect = quotaRect{x, y, width, height}
 	p.round(quotaRect{x + 2, y + 3, width, height}, 6, 0xe6eaf0, 0xe6eaf0)
 	p.round(o.Rect, 6, qmWhite, 0xcfd6e0)
 	title := tr("Settings", "设置")
 	if o.Kind == "threshold" {
 		title = tr("Auto-switch threshold", "自动切换阈值")
+	} else if o.Kind == "sort" {
+		title = tr("Account order", "账号排序")
+	} else if o.Kind == "account-actions" {
+		title = tr("Account actions", "账号操作")
 	}
 	p.text(title, quotaRect{x + 14, y + 5, width - 28, 30}, 3, qmMuted, false)
 	p.fill(quotaRect{x + 12, y + 37, width - 24, 1}, qmLine)
