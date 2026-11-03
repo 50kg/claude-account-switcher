@@ -259,10 +259,12 @@ type quotaMenuHit struct {
 }
 
 type quotaMenuOverlay struct {
-	Kind    string
-	Anchor  quotaRect
-	Rect    quotaRect
-	Confirm quotaMenuAction
+	Kind              string
+	Anchor            quotaRect
+	Rect              quotaRect
+	Confirm           quotaMenuAction
+	Input, Error      string
+	SelectAll, Saving bool
 }
 
 type quotaMenuChoice struct {
@@ -270,6 +272,7 @@ type quotaMenuChoice struct {
 	Checked, Disabled bool
 	Separator         bool
 	Action            quotaMenuAction
+	Popup             string
 }
 
 type quotaMenuWindow struct {
@@ -428,6 +431,9 @@ func quotaMenuWindowProc(hwnd, msg, wp, lp uintptr) uintptr {
 			}
 			return 0
 		}
+		if w.intervalKey(wp) {
+			return 0
+		}
 		switch wp {
 		case 27:
 			if w.overlay != nil {
@@ -474,6 +480,10 @@ func quotaMenuWindowProc(hwnd, msg, wp, lp uintptr) uintptr {
 			w.setScroll(w.scroll + delta)
 		}
 		return 0
+	case 0x102: // WM_CHAR
+		if w.intervalChar(rune(wp)) {
+			return 0
+		}
 	case 0x02E0: // WM_DPICHANGED
 		w.finishHeightDrag(true)
 		w.dpi = int(wp & 0xffff)
@@ -576,7 +586,7 @@ func (w *quotaMenuWindow) reload(show bool) {
 	// The flat settings menu must also fit when no accounts have been added.
 	height := max(w.bodyTop+min(w.contentHeight, quotaMenuMaxBodyHeight)+quotaMenuFooterHeight, quotaChoicesHeight(w.choices("settings"))+16)
 	if w.preferredHeight > 0 {
-		height = max(quotaMenuMinHeight, w.preferredHeight)
+		height = max(w.minimumHeight(), w.preferredHeight)
 	}
 	position := placeQuotaMenu(w.work, int(w.anchor.X), int(w.anchor.Y), w.scale(520), w.scale(height))
 	w.width = position.W * 96 / w.dpi
@@ -669,10 +679,16 @@ func (w *quotaMenuWindow) activate(hit quotaMenuHit) {
 	if hit.Popup != "" {
 		w.overlay = &quotaMenuOverlay{Kind: hit.Popup, Anchor: hit.Rect}
 		w.focus, w.hover, w.pressed = -1, -1, -1
+		if hit.Popup == "interval" {
+			w.openInterval()
+		}
 		w.invalidate()
 		return
 	}
 	a := hit.Action
+	if w.activateInterval(a) {
+		return
+	}
 	if a.Kind == "" {
 		return
 	}
@@ -684,7 +700,7 @@ func (w *quotaMenuWindow) activate(hit quotaMenuHit) {
 		w.invalidate()
 		return
 	}
-	keepOpen := a.Kind == "auto" || a.Kind == "spend" || a.Kind == "threshold" || a.Kind == "autostart"
+	keepOpen := a.Kind == "auto" || a.Kind == "spend" || a.Kind == "threshold" || a.Kind == "autostart" || a.Kind == "sync"
 	w.closeOverlay()
 	if !keepOpen {
 		w.hide()
@@ -702,6 +718,10 @@ func (w *quotaMenuWindow) activate(hit quotaMenuHit) {
 func (w *quotaMenuWindow) choices(kind string) []quotaMenuChoice {
 	switch kind {
 	case "settings":
+		syncLabel := tr("Sync usage now", "立即同步用量")
+		if w.view.Syncing {
+			syncLabel = tr("Syncing usage…", "正在同步用量…")
+		}
 		title, _ := updateMenuText(w.view.Update)
 		if title == "" {
 			title = tr("Check for updates", "检查更新")
@@ -709,7 +729,9 @@ func (w *quotaMenuWindow) choices(kind string) []quotaMenuChoice {
 		return []quotaMenuChoice{
 			{Label: tr("Use expiring weekly allowance", "优先使用即将重置的周额度"), Checked: w.view.Spend, Action: quotaMenuAction{Kind: "spend", Enabled: !w.view.Spend}},
 			{Label: tr("Start at login", "开机启动"), Checked: w.view.Startup, Action: quotaMenuAction{Kind: "autostart", Enabled: !w.view.Startup}},
+			{Label: refreshIntervalText(w.view.RefreshMinutes), Popup: "interval"},
 			{Separator: true},
+			{Label: syncLabel, Disabled: w.view.Busy || len(w.view.Accounts) == 0, Action: quotaMenuAction{Kind: "sync"}},
 			{Label: tr("Import chats from all accounts…", "导入所有账号的聊天…"), Disabled: w.view.Busy, Action: quotaMenuAction{Kind: "import", Active: w.view.Active}},
 			{Label: tr("Open data folder", "打开数据文件夹"), Action: quotaMenuAction{Kind: "folder"}},
 			{Label: title, Action: quotaMenuAction{Kind: "update"}},

@@ -20,14 +20,19 @@ func TestQuotaMenuPreservesEmailResetAndModelUsage(t *testing.T) {
 				t.Fatalf("lost current identity: %+v", v.Accounts[0])
 			}
 			q := v.Accounts[0].Quotas
-			if len(q) != 3 || q[0].Used == nil || *q[0].Used != 67 || !strings.Contains(q[0].Reset, "15:20") || !strings.Contains(q[0].values(), "33%") {
+			if len(q) != 3 || q[0].Used == nil || *q[0].Used != 67 || !strings.Contains(q[0].Reset, "15:20") || !strings.Contains(q[0].values(), "67%") {
 				t.Fatalf("lost session fields: %+v", q)
 			}
-			if q[2].Used == nil || *q[2].Used != 100 || q[2].Notice != tr("Limit reached", "已用尽") {
+			if q[2].Used == nil || *q[2].Used != 100 {
 				t.Fatalf("lost independent model cap: %+v", q[2])
 			}
-			if q[1].Notice != "" || !strings.Contains(q[1].values(), "33%") {
+			if q[1].Used == nil || *q[1].Used != 67 {
 				t.Fatal("model exhaustion incorrectly exhausted total week")
+			}
+			for _, row := range q {
+				if strings.Contains(row.values(), tr("Left", "剩余")) {
+					t.Fatal("removed remaining value is still visible")
+				}
 			}
 			*q[2].Used = 1
 			if usage.ModelWeekly[0].Percent != 100 || allowance != 50 {
@@ -50,7 +55,7 @@ func TestQuotaMenuUnknownFailedStaleAndExpiredAreNotFreshBalances(t *testing.T) 
 	}
 	a.Usage = &Usage{Session: 42, Weekly: 45, CheckedAt: now, SessionReset: now, ModelWeekly: []ModelWeeklyUsage{{Name: "Fable", Percent: 100}}}
 	r = view(a)
-	if !r.Quotas[0].Stale || !strings.Contains(r.Quotas[0].Reset, "待更新") || !strings.Contains(r.Quotas[0].values(), "42%") || r.Quotas[0].Notice != "" {
+	if !r.Quotas[0].Stale || !strings.Contains(r.Quotas[0].Reset, "待更新") || !strings.Contains(r.Quotas[0].values(), "42%") {
 		t.Fatalf("expired window became an invented fresh balance: %+v", r.Quotas[0])
 	}
 	if a.Usage.Session != 42 {
@@ -58,13 +63,13 @@ func TestQuotaMenuUnknownFailedStaleAndExpiredAreNotFreshBalances(t *testing.T) 
 	}
 	a.Problem = usageLimitedMessage
 	r = view(a)
-	if !strings.Contains(r.Problem, "查询受限") || strings.Contains(r.Problem, "失效") || r.Quotas[2].Notice != "" || !r.Quotas[2].Stale {
+	if !strings.Contains(r.Problem, "查询受限") || strings.Contains(r.Problem, "失效") || !r.Quotas[2].Stale {
 		t.Fatalf("rate limit became sign-out or current exhaustion: %+v", r)
 	}
 	a.Problem = ""
 	a.Usage.CheckedAt = now.Add(-idleFresh - time.Second)
 	r = view(a)
-	if !r.Stale || !strings.Contains(r.Quotas[2].values(), "上次") || r.Quotas[2].Notice != "" {
+	if !r.Stale || !strings.Contains(r.Quotas[2].values(), "上次") {
 		t.Fatal("old data looked current")
 	}
 	for _, value := range []float64{-1, math.NaN(), math.Inf(1)} {

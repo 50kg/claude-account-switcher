@@ -29,7 +29,6 @@ var (
 	qmMoveTo        = qmGDI.NewProc("MoveToEx")
 	qmLineTo        = qmGDI.NewProc("LineTo")
 	qmRoundRect     = qmGDI.NewProc("RoundRect")
-	qmEllipse       = qmGDI.NewProc("Ellipse")
 	qmArc           = qmGDI.NewProc("Arc")
 	qmCreateFont    = qmGDI.NewProc("CreateFontW")
 	qmSetTextColor  = qmGDI.NewProc("SetTextColor")
@@ -209,11 +208,13 @@ func (w *quotaMenuWindow) draw(dc uintptr) {
 	resizeHint := tr("Drag the top or bottom edge to resize; double-click to reset", "拖动顶部或底部边缘调整高度；双击恢复默认")
 	w.addFixedTooltip(quotaRect{1, 0, w.width - 2, 7}, resizeHint)
 	w.addFixedTooltip(quotaRect{1, w.height - 6, w.width - 2, 6}, resizeHint)
-	p.ring(30, 23)
-	p.text(tr("Claude Account Switcher", "Claude 账号切换器"), quotaRect{50, 8, 250, 30}, 2, qmInk, false)
+	p.text(tr("Claude Account Switcher", "Claude 账号切换器"), quotaRect{20, 8, 280, 30}, 2, qmInk, false)
 	updated := tr("Waiting for usage", "等待用量更新")
 	if !w.view.Updated.IsZero() {
 		updated = fmt.Sprintf(tr("%d accounts · %s", "%d个账号 · %s 更新"), len(w.view.Accounts), w.view.Updated.Local().Format("15:04"))
+	}
+	if w.view.Syncing {
+		updated = tr("Syncing usage…", "正在同步用量…")
 	}
 	p.text(updated, quotaRect{300, 9, w.width - 320, 27}, 1, qmMuted, true)
 	p.fill(quotaRect{1, quotaMenuHeaderHeight - 1, w.width - 2, 1}, qmLine)
@@ -259,25 +260,6 @@ func (w *quotaMenuWindow) draw(dc uintptr) {
 	if w.focus >= 0 {
 		r := w.hits[w.focus].Rect
 		p.line(r.X, r.Y+r.H-1, r.X+r.W, r.Y+r.H-1, qmBlue, 2)
-	}
-}
-
-func (p *qmPainter) ring(cx, cy int) {
-	for _, part := range []struct {
-		color uint32
-		arc   bool
-	}{{0xdbe4f2, false}, {qmBlue, true}} {
-		pen, _, _ := qmCreatePen.Call(0, uintptr(p.w.scale(3)), qmColor(part.color))
-		old, _, _ := qmSelectObject.Call(p.dc, pen)
-		if part.arc {
-			qmArc.Call(p.dc, uintptr(p.w.scale(cx-9)), uintptr(p.w.scale(cy-9)), uintptr(p.w.scale(cx+9)), uintptr(p.w.scale(cy+9)), uintptr(p.w.scale(cx)), uintptr(p.w.scale(cy-9)), uintptr(p.w.scale(cx+8)), uintptr(p.w.scale(cy+4)))
-		} else {
-			brushOld, _, _ := qmSelectObject.Call(p.dc, p.brush(qmWhite))
-			qmEllipse.Call(p.dc, uintptr(p.w.scale(cx-9)), uintptr(p.w.scale(cy-9)), uintptr(p.w.scale(cx+9)), uintptr(p.w.scale(cy+9)))
-			qmSelectObject.Call(p.dc, brushOld)
-		}
-		qmSelectObject.Call(p.dc, old)
-		qmDeleteObject.Call(pen)
 	}
 }
 
@@ -365,24 +347,11 @@ func (p *qmPainter) quota(q quotaMenuReading, y int) {
 	valueRect := quotaRect{w.width - 20 - valuesW, y, valuesW, 21}
 	p.text(values, valueRect, 1, textColor, true)
 	resetW := p.measure(q.Reset, 1)
-	noticeW := 0
-	if q.Notice != "" {
-		noticeW = p.measure(q.Notice, 1) + 10
-	}
-	labelW := max(25, valueRect.X-20-resetW-noticeW-23)
+	labelW := max(25, valueRect.X-20-resetW-23)
 	labelW = min(labelW, p.measure(q.Name, 0))
 	p.text(q.Name, quotaRect{20, y, labelW, 21}, 0, qmInk, false)
 	x := 20 + labelW + 8
 	p.text(q.Reset, quotaRect{x, y, resetW, 21}, 1, qmMuted, false)
-	if q.Notice != "" {
-		fill := uint32(0xfcf1d9)
-		if q.Used != nil && *q.Used >= 100 {
-			fill = 0xfcebee
-		}
-		x += resetW + 7
-		p.round(quotaRect{x, y + 1, noticeW, 19}, 3, fill, fill)
-		p.text(q.Notice, quotaRect{x + 5, y, noticeW - 10, 21}, 1, textColor, false)
-	}
 	track := quotaRect{20, y + 24, w.width - 40, 4}
 	p.round(track, 4, qmTrack, qmTrack)
 	if q.Used != nil {

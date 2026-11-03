@@ -90,12 +90,18 @@ func verifyNativeMenuResizing(t *testing.T, f *quotaMenuFixture, dir string) {
 		t.Fatal("second native instance did not close")
 	}
 	// Top-edge expansion is clamped to the display's work area.
+	nativeMenuDo(t, m, func(w *quotaMenuWindow) {
+		// Reopening uses the real pointer's position. Anchor this isolated test
+		// near the work-area bottom so the top edge has room to expand.
+		w.anchor = qmPoint{X: int32(w.work.X + w.work.W - 1), Y: int32(w.work.Y + w.work.H - 1)}
+		w.reload(false)
+	})
 	nativeMenuDragHeight(t, m, -1, -8000, false)
 	nativeMenuDo(t, m, func(w *quotaMenuWindow) {
 		var r windows.Rect
 		procGetWindowRect.Call(w.hwnd, uintptr(unsafe.Pointer(&r)))
 		if int(r.Top) < w.work.Y+8 || int(r.Bottom) > w.work.Y+w.work.H-8 || w.height <= small {
-			t.Error("expanded height did not respect work-area limits")
+			t.Errorf("expanded height did not respect work-area limits: rect=%+v work=%+v height=%d previous=%d", r, w.work, w.height, small)
 		}
 		if err := w.capture(filepath.Join(dir, "native-height-expanded.png")); err != nil {
 			t.Error(err)

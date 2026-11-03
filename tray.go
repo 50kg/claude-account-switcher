@@ -284,6 +284,12 @@ func (t *tray) handleQuotaMenuAction(action quotaMenuAction) error {
 		t.s.setSpendWeekly(action.Enabled)
 	case "threshold":
 		t.s.setThreshold(action.Threshold)
+	case "interval":
+		return t.s.setRefreshMinutes(action.Minutes)
+	case "sync":
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cancel()
+		return t.s.syncUsageNow(ctx)
 	case "autostart":
 		if err := setAutostart(action.Enabled); err != nil {
 			return err

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -18,14 +19,15 @@ import (
 )
 
 type quotaMenuFixture struct {
-	mu       sync.Mutex
-	snapshot snapshot
-	input    quotaMenuInput
-	actions  chan quotaMenuAction
-	errors   chan string
-	menu     *nativeQuotaMenu
-	now      time.Time
-	startup  bool
+	mu           sync.Mutex
+	snapshot     snapshot
+	input        quotaMenuInput
+	actions      chan quotaMenuAction
+	errors       chan string
+	menu         *nativeQuotaMenu
+	now          time.Time
+	startup      bool
+	failInterval bool
 }
 
 func newQuotaMenuFixture() *quotaMenuFixture {
@@ -52,6 +54,9 @@ func newQuotaMenuFixture() *quotaMenuFixture {
 	}, func(a quotaMenuAction) error {
 		f.mu.Lock()
 		err := validateQuotaMenuAction(a, f.snapshot)
+		if err == nil && a.Kind == "interval" && f.failInterval {
+			err = errors.New("测试保存失败")
+		}
 		if err == nil {
 			switch a.Kind {
 			case "auto":
@@ -64,6 +69,14 @@ func newQuotaMenuFixture() *quotaMenuFixture {
 				f.snapshot.Active = a.Account
 			case "autostart":
 				f.startup = a.Enabled
+			case "interval":
+				err = saveRefreshMinutes(f.menu.preferencesPath, a.Minutes)
+				if err == nil {
+					f.snapshot.RefreshMinutes = a.Minutes
+					f.snapshot.Status = refreshIntervalSavedText(a.Minutes)
+				}
+			case "sync":
+				f.snapshot.Status = fmt.Sprintf("用量同步完成：已更新%d个账号", len(f.snapshot.Accounts))
 			}
 		}
 		f.mu.Unlock()
@@ -371,20 +384,21 @@ func TestNativeQuotaMenuChild(t *testing.T) {
 		imageErr = w.capture(filepath.Join(dir, "native-settings.png"))
 		counts := map[string]int{}
 		for _, h := range w.hits {
-			if h.Popup != "" {
+			if h.Popup != "" && h.Popup != "interval" {
 				t.Error("settings unexpectedly added a nested submenu")
 			}
 			counts[h.Action.Kind]++
 		}
-		if len(w.hits) != 5 {
-			t.Errorf("settings has %d actions, want five", len(w.hits))
+		if len(w.hits) != 7 {
+			t.Errorf("settings has %d actions, want seven", len(w.hits))
 		}
-		for _, kind := range []string{"spend", "autostart", "import", "folder", "update"} {
+		for _, kind := range []string{"spend", "autostart", "import", "folder", "update", "sync"} {
 			if counts[kind] != 1 {
 				t.Errorf("settings action %s missing or repeated", kind)
 			}
 		}
 	})
+	verifyNativeInterval(t, f, dir)
 	nativeMenuClickHit(t, m, func(h quotaMenuHit) bool { return h.Action.Kind == "spend" })
 	if a := f.expectAction(t, "spend"); !a.Enabled {
 		t.Fatal("spend setting did not enable")
@@ -633,7 +647,7 @@ func TestNativeQuotaMenuChild(t *testing.T) {
 	nativeMenuDo(t, m, func(w *quotaMenuWindow) {
 		imageErr = w.capture(filepath.Join(dir, "native-settings-empty.png"))
 		r := w.overlay.Rect
-		if r.Y < 0 || r.Y+r.H > w.height || len(w.hits) != 5 {
+		if r.Y < 0 || r.Y+r.H > w.height || len(w.hits) != 6 {
 			t.Error("combined settings clipped its actions in an empty account list")
 		}
 		procSendMessage.Call(w.hwnd, 0x100, 36, 0)
@@ -680,11 +694,16 @@ func TestNativeQuotaMenuReview(t *testing.T) {
 		}
 	}()
 	nativeMenuWait(t, m, func(w *quotaMenuWindow) bool { return m.shown.Load() && len(w.hits) > 0 })
+	if os.Getenv("QUOTA_MENU_REVIEW_SETTINGS") == "1" {
+		nativeMenuClickHit(t, m, func(h quotaMenuHit) bool { return h.Popup == "settings" })
+		nativeMenuWait(t, m, func(w *quotaMenuWindow) bool { return w.overlay != nil && w.overlay.Kind == "settings" })
+	}
 	scanner := bufio.NewScanner(os.Stdin)
 	fmt.Println("ISOLATED_NATIVE_REVIEW_READY")
 	for scanner.Scan() {
 		var req struct {
 			Op, Path  string
+			Text      string
 			X, Y, Key int
 			DX, DY    int
 		}
@@ -724,6 +743,13 @@ func TestNativeQuotaMenuReview(t *testing.T) {
 			m.mu.Unlock()
 			qmPostMessage.Call(hwnd, 0x100, uintptr(req.Key), 0)
 		}
+		if req.Op == "type" {
+			nativeMenuDo(t, m, func(w *quotaMenuWindow) {
+				for _, ch := range req.Text {
+					procSendMessage.Call(w.hwnd, 0x102, uintptr(ch), 0)
+				}
+			})
+		}
 		nativeMenuDo(t, m, func(w *quotaMenuWindow) {
 			if req.Op == "capture" {
 				if err := w.capture(req.Path); err != nil {
@@ -746,7 +772,12 @@ func TestNativeQuotaMenuReview(t *testing.T) {
 				Overlay         string
 				PopupItems      []string
 				PreferredHeight int
-			}{m.shown.Load(), w.width, w.height, w.view, w.hits, overlay, popupItems, w.preferredHeight}
+				Input, Error    string
+			}{m.shown.Load(), w.width, w.height, w.view, w.hits, overlay, popupItems, w.preferredHeight, "", ""}
+			if w.overlay != nil {
+				output.Input = w.overlay.Input
+				output.Error = w.overlay.Error
+			}
 			encoded, _ := json.Marshal(output)
 			fmt.Println(string(encoded))
 		})

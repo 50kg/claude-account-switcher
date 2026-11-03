@@ -39,6 +39,13 @@ func (s *switcher) usageJobs(active string, now time.Time) []usageJob {
 			}
 		}
 		due := a.Problem != "" || a.Usage == nil || now.Sub(a.Usage.CheckedAt) >= every-5*time.Second
+		if s.refreshMinutes > 0 {
+			at := s.lastUsageAttempt[a.UUID]
+			if a.Usage != nil && a.Usage.CheckedAt.After(at) {
+				at = a.Usage.CheckedAt
+			}
+			due = at.IsZero() || now.Sub(at) >= time.Duration(s.refreshMinutes)*time.Minute-5*time.Second
+		}
 		if due && !now.Before(s.backoff[a.UUID]) {
 			jobs = append(jobs, usageJob{a.UUID, false})
 		}
@@ -50,6 +57,10 @@ func (s *switcher) usageJobs(active string, now time.Time) []usageJob {
 // the separate Claude desktop session has been signed out. Failed checks keep
 // the old usage and its original timestamp, so it cannot appear freshly fetched.
 func (s *switcher) recordUsageResult(uuid string, u *Usage, err error, now time.Time) {
+	if s.lastUsageAttempt == nil {
+		s.lastUsageAttempt = map[string]time.Time{}
+	}
+	s.lastUsageAttempt[uuid] = now
 	problem := ""
 	var retryAt time.Time
 	meta := s.usageCredentialState(uuid)

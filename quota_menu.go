@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"math"
 	"sort"
 	"strings"
 	"time"
@@ -22,6 +21,8 @@ type quotaMenuView struct {
 	Active, Status, Update     string
 	Busy, Auto, Spend, Startup bool
 	Threshold                  float64
+	RefreshMinutes             int
+	Syncing                    bool
 	Updated                    time.Time
 }
 
@@ -32,16 +33,21 @@ type quotaMenuAccount struct {
 }
 
 type quotaMenuReading struct {
-	Name, Reset, Notice string
-	Used                *float64
-	Stale               bool
+	Name, Reset string
+	Used        *float64
+	Stale       bool
 }
 
 func makeQuotaMenuView(s snapshot, startup bool, now time.Time) quotaMenuView {
 	v := quotaMenuView{Active: s.Active, Status: s.Status, Update: s.Update,
-		Busy: s.Busy, Auto: s.AutoSwitch, Spend: s.SpendWeekly, Startup: startup, Threshold: s.Threshold}
+		Busy: s.Busy || s.Syncing, Syncing: s.Syncing, RefreshMinutes: s.RefreshMinutes, Auto: s.AutoSwitch, Spend: s.SpendWeekly, Startup: startup, Threshold: s.Threshold}
 	if v.Status == "" {
 		v.Status = s.Note
+	}
+	// The header owns in-flight feedback; a previous completion must not
+	// contradict it or be repeated beneath it.
+	if v.Syncing && isUsageSyncStatus(v.Status) {
+		v.Status = ""
 	}
 	for _, a := range s.Accounts {
 		row := quotaMenuAccount{ID: a.UUID, Name: menuSingleLine(a.Name), Email: menuSingleLine(a.Email), Plan: menuSingleLine(a.Plan),
@@ -60,14 +66,7 @@ func makeQuotaMenuView(s snapshot, startup bool, now time.Time) quotaMenuView {
 			if used != nil && validQuotaPercent(*used) {
 				value := *used
 				q.Used = &value
-				if !q.Stale {
-					switch {
-					case value >= 100:
-						q.Notice = tr("Limit reached", "已用尽")
-					case value >= warnAt:
-						q.Notice = tr("Low", "偏低")
-					}
-				}
+
 			}
 			row.Quotas = append(row.Quotas, q)
 		}
@@ -116,18 +115,19 @@ func quotaResetText(at, now time.Time) string {
 
 func (q quotaMenuReading) values() string {
 	if q.Used == nil {
-		return tr("Used —   Left —", "已用 —   剩余 —")
+		return tr("Used —", "已用 —")
 	}
 	prefix := tr("Used", "已用")
 	if q.Stale {
 		prefix = tr("Last used", "上次已用")
 	}
-	return fmt.Sprintf(tr("%s %.0f%%   Left %.0f%%", "%s %.0f%%   剩余 %.0f%%"), prefix, *q.Used, math.Max(0, 100-*q.Used))
+	return fmt.Sprintf("%s %.0f%%", prefix, *q.Used)
 }
 
 type quotaMenuAction struct {
 	Kind, Account, Active string
 	Enabled, Confirmed    bool
+	Minutes               int
 	Threshold             float64
 }
 
@@ -137,7 +137,7 @@ func validateQuotaMenuAction(a quotaMenuAction, s snapshot) error {
 	}
 	switch a.Kind {
 	case "switch", "add", "import":
-		if !a.Confirmed || s.Busy || a.Active != s.Active {
+		if !a.Confirmed || s.Busy || s.Syncing || a.Active != s.Active {
 			return reject()
 		}
 		if a.Kind == "switch" {
@@ -158,6 +158,14 @@ func validateQuotaMenuAction(a quotaMenuAction, s snapshot) error {
 			}
 		}
 		return reject()
+	case "interval":
+		if !validRefreshMinutes(a.Minutes) {
+			return reject()
+		}
+	case "sync":
+		if s.Busy || s.Syncing || len(s.Accounts) == 0 {
+			return reject()
+		}
 	case "auto", "spend", "autostart", "folder", "update", "quit":
 	default:
 		return reject()

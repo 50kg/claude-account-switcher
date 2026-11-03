@@ -122,13 +122,19 @@ type switcher struct {
 	addingAt time.Time
 	onChange func()
 	// After a 429, an account is not asked again before its backoff ends.
-	backoff map[string]time.Time
-	strikes map[string]int
+	backoff          map[string]time.Time
+	strikes          map[string]int
+	usageSyncing     atomic.Bool
+	refreshMinutes   int
+	lastUsageAttempt map[string]time.Time
 }
 
 func newSwitcher(dir string) *switcher {
 	s := &switcher{dir: dir, st: State{Threshold: defaultThreshold}, onChange: func() {},
-		backoff: map[string]time.Time{}, strikes: map[string]int{}}
+		backoff: map[string]time.Time{}, strikes: map[string]int{}, lastUsageAttempt: map[string]time.Time{}}
+	if p, err := loadQuotaMenuPreferences(filepath.Join(dir, "ui.json")); err == nil {
+		s.refreshMinutes = p.RefreshMinutes
+	}
 	if data, err := os.ReadFile(s.statePath()); err == nil {
 		_ = json.Unmarshal(data, &s.st)
 	}
@@ -218,9 +224,10 @@ func (s *switcher) refresh(ctx context.Context) {
 // check fetches the usage that is due and saves it. It never restarts Claude,
 // so -status can use it; an automatic switch it finds due is returned instead.
 func (s *switcher) check(ctx context.Context) (string, func() error) {
-	if s.busy.Load() {
+	if s.busy.Load() || !s.beginUsageSync() {
 		return "", nil
 	}
+	defer s.endUsageSync()
 	active, err := s.app().activeAccount()
 	if err != nil {
 		log.Printf("read app config: %v", err)
@@ -564,14 +571,16 @@ func (s *switcher) setThreshold(t float64) {
 
 // snapshot is a copy of what the menu shows.
 type snapshot struct {
-	Accounts    []Account
-	Active      string
-	AutoSwitch  bool
-	SpendWeekly bool
-	Threshold   float64
-	Status      string
-	Note        string
-	Busy        bool
+	Accounts       []Account
+	Active         string
+	AutoSwitch     bool
+	SpendWeekly    bool
+	Threshold      float64
+	Status         string
+	Note           string
+	Busy           bool
+	Syncing        bool
+	RefreshMinutes int
 	// Update is a version newer than this one, empty while there is none.
 	Update string
 }
@@ -580,7 +589,7 @@ func (s *switcher) snapshot() snapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	snap := snapshot{Active: s.active, AutoSwitch: s.st.AutoSwitch, SpendWeekly: s.st.SpendWeekly, Threshold: s.st.Threshold,
-		Status: s.status, Note: s.autoNote(time.Now()), Busy: s.busy.Load()}
+		Status: s.status, Note: s.autoNote(time.Now()), Busy: s.busy.Load(), Syncing: s.usageSyncing.Load(), RefreshMinutes: s.refreshMinutes}
 	if manualUpdateURL == "" && !s.st.NoUpdateCheck && newerVersion(s.st.LatestVersion, version) {
 		snap.Update = s.st.LatestVersion
 	}

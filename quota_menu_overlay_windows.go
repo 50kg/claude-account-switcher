@@ -12,6 +12,10 @@ func (p *qmPainter) overlay() {
 		p.confirmation(o)
 		return
 	}
+	if o.Kind == "interval" {
+		p.intervalEditor(o)
+		return
+	}
 	choices := w.choices(o.Kind)
 	width := min(languageOffset(360, 314), w.width-24)
 	height := quotaChoicesHeight(choices)
@@ -43,7 +47,7 @@ func (p *qmPainter) overlay() {
 			if index == w.hover || index == w.focus {
 				p.round(r, 4, 0xeaf1fd, 0xeaf1fd)
 			}
-			w.addHit(quotaMenuHit{Rect: r, Action: choice.Action}, false)
+			w.addHit(quotaMenuHit{Rect: r, Action: choice.Action, Popup: choice.Popup}, false)
 		}
 		p.text(choice.Label, quotaRect{r.X + 10, r.Y, r.W - 40, r.H}, 0, color, false)
 		if choice.Checked {

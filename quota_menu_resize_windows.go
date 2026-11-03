@@ -51,7 +51,7 @@ func (w *quotaMenuWindow) dragHeight(p qmPoint) {
 		available = int(d.Rect.Bottom) - w.work.Y - 8
 	}
 	available = min(available, w.scale(8192))
-	height = max(min(w.scale(quotaMenuMinHeight), available), min(height, available))
+	height = max(min(w.scale(w.minimumHeight()), available), min(height, available))
 	r := d.Rect
 	if d.Edge < 0 {
 		r.Top = r.Bottom - int32(height)
@@ -59,6 +59,10 @@ func (w *quotaMenuWindow) dragHeight(p qmPoint) {
 		r.Bottom = r.Top + int32(height)
 	}
 	w.placeResized(r)
+}
+
+func (w *quotaMenuWindow) minimumHeight() int {
+	return max(quotaMenuMinHeight, quotaChoicesHeight(w.choices("settings"))+16)
 }
 
 func (w *quotaMenuWindow) placeResized(r windows.Rect) {
@@ -110,6 +114,6 @@ func (w *quotaMenuWindow) persistHeight() {
 
 func (w *quotaMenuWindow) preferenceError(err error) {
 	if w.menu.onError != nil {
-		w.menu.onError(tr("Menu height preference: ", "菜单高度设置：") + err.Error())
+		w.menu.onError(tr("Interface preferences: ", "界面设置：") + err.Error())
 	}
 }
