@@ -68,7 +68,11 @@ func main() {
 		}
 		systray.Quit()
 	})
-	systray.Run(t.onReady, func() {})
+	systray.Run(t.onReady, func() {
+		if t.menu != nil {
+			t.menu.close()
+		}
+	})
 }
 
 // setupLog writes to switcher.log and starts it over once it passes 1 MB.

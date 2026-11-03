@@ -1,0 +1,412 @@
+package main
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+	"unsafe"
+
+	"golang.org/x/sys/windows"
+)
+
+type quotaMenuFixture struct {
+	mu            sync.Mutex
+	snapshot      snapshot
+	input         quotaMenuInput
+	confirm       atomic.Bool
+	confirmations atomic.Int32
+	actions       chan quotaMenuAction
+	errors        chan string
+	menu          *nativeQuotaMenu
+	now           time.Time
+}
+
+func newQuotaMenuFixture() *quotaMenuFixture {
+	now := time.Date(2026, 11, 3, 14, 20, 0, 0, time.Local)
+	allowance := 50.0
+	f := &quotaMenuFixture{now: now, actions: make(chan quotaMenuAction, 16), errors: make(chan string, 16), input: quotaMenuInput{inside: true, ownForeground: true, knownForeground: true}}
+	f.snapshot = snapshot{Active: "synthetic-riley", Threshold: 96}
+	for i, a := range []struct {
+		id, name, email, plan string
+		session, week, model  float64
+		reset                 time.Time
+	}{
+		{"synthetic-riley", "Riley Chen", "riley.chen@example.com", "Max", 67, 67, 100, time.Date(2026, 11, 3, 20, 0, 0, 0, time.Local)},
+		{"synthetic-alex", "Alex Lin", "alex.lin@example.com", "Pro", 20, 34, 40, time.Date(2026, 11, 5, 20, 0, 0, 0, time.Local)},
+		{"synthetic-jordan", "Jordan Wu", "jordan.wu@example.com", "Max", 85, 42, 76, time.Date(2026, 11, 6, 9, 0, 0, 0, time.Local)},
+	} {
+		at := now.Add(time.Duration([]int{40, 220, 130}[i]) * time.Minute)
+		f.snapshot.Accounts = append(f.snapshot.Accounts, Account{UUID: a.id, Name: a.name, Email: a.email, Plan: a.plan, Usage: &Usage{Session: a.session, Weekly: a.week, SessionReset: at, WeeklyReset: a.reset, CheckedAt: now, ModelWeekly: []ModelWeeklyUsage{{Name: "Fable", Percent: a.model, ResetsAt: a.reset, AllowancePercent: &allowance}}}})
+	}
+	m := newQuotaMenu(func() quotaMenuView {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return makeQuotaMenuView(f.snapshot, false, f.now)
+	}, func(a quotaMenuAction) error {
+		f.mu.Lock()
+		err := validateQuotaMenuAction(a, f.snapshot)
+		if err == nil {
+			switch a.Kind {
+			case "auto":
+				f.snapshot.AutoSwitch = a.Enabled
+			case "spend":
+				f.snapshot.SpendWeekly = a.Enabled
+			case "threshold":
+				f.snapshot.Threshold = a.Threshold
+			case "switch":
+				f.snapshot.Active = a.Account
+			}
+		}
+		f.mu.Unlock()
+		if err == nil {
+			f.actions <- a
+		}
+		return err
+	}, func(s string) { f.errors <- s }).(*nativeQuotaMenu)
+	m.options = nativeQuotaMenuOptions{noActivate: true, input: func(uintptr) quotaMenuInput { f.mu.Lock(); defer f.mu.Unlock(); return f.input }, confirm: func(quotaMenuAction) bool { f.confirmations.Add(1); return f.confirm.Load() }}
+	f.menu = m
+	return f
+}
+
+func nativeMenuDo(t *testing.T, m *nativeQuotaMenu, fn func(*quotaMenuWindow)) {
+	t.Helper()
+	done := make(chan struct{})
+	if err := m.invoke(func(w *quotaMenuWindow) { fn(w); close(done) }); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("native menu UI thread did not respond")
+	}
+}
+
+func nativeMenuWait(t *testing.T, m *nativeQuotaMenu, fn func(*quotaMenuWindow) bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		var ok bool
+		nativeMenuDo(t, m, func(w *quotaMenuWindow) { ok = fn(w) })
+		if ok {
+			return
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	t.Fatal("native menu state did not become ready")
+}
+
+func nativeMenuClick(t *testing.T, m *nativeQuotaMenu, x, y int) {
+	t.Helper()
+	nativeMenuDo(t, m, func(w *quotaMenuWindow) {
+		lp := uintptr(uint16(w.scale(x))) | uintptr(uint16(w.scale(y)))<<16
+		procSendMessage.Call(w.hwnd, 0x201, 1, lp)
+		procSendMessage.Call(w.hwnd, 0x202, 0, lp)
+	})
+}
+
+func TestNativeQuotaMenuDoesNotStartOnHiddenUpdates(t *testing.T) {
+	reads := 0
+	m := newQuotaMenu(func() quotaMenuView { reads++; return quotaMenuView{} }, func(quotaMenuAction) error { return nil }, nil).(*nativeQuotaMenu)
+	m.update()
+	if reads != 0 || m.started || m.hwnd != 0 {
+		t.Fatal("background update created a window or read account state")
+	}
+	m.close()
+	if m.start() {
+		t.Fatal("closed menu started a window")
+	}
+}
+
+func TestQuotaMenuDismissalIgnoresOpeningClickAndUnknownForeground(t *testing.T) {
+	now := time.Now()
+	d := quotaMenuDismissal{}
+	d.open(now, quotaMenuInput{buttons: 2})
+	if d.hide(now.Add(100*time.Millisecond), quotaMenuInput{buttons: 2, ownForeground: true}) {
+		t.Fatal("opening click dismissed the menu")
+	}
+	if d.hide(now.Add(time.Second), quotaMenuInput{knownForeground: false}) {
+		t.Fatal("unknown foreground dismissed the menu")
+	}
+	if !d.hide(now.Add(2*time.Second), quotaMenuInput{knownForeground: true}) {
+		t.Fatal("real focus transfer did not dismiss the menu")
+	}
+	d.open(now, quotaMenuInput{})
+	if !d.hide(now.Add(time.Second), quotaMenuInput{buttons: 1, inside: false}) {
+		t.Fatal("outside click was ignored")
+	}
+}
+
+func TestNativeQuotaMenuSmoke(t *testing.T) {
+	if os.Getenv("QUOTA_MENU_NATIVE_SMOKE") != "1" {
+		t.Skip("set QUOTA_MENU_NATIVE_SMOKE=1 for isolated native tests")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+	defer cancel()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := hidden(exec.CommandContext(ctx, exe, "-test.run=^TestNativeQuotaMenuChild$", "-test.v"))
+	cmd.Env = append(os.Environ(), "QUOTA_MENU_NATIVE_CHILD=1")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("native smoke: %v\n%s", err, output)
+	}
+	if !strings.Contains(string(output), "NATIVE_QUOTA_MENU_VERIFIED") {
+		t.Fatalf("no native completion marker: %s", output)
+	}
+	t.Log(strings.TrimSpace(string(output)))
+}
+
+func TestNativeQuotaMenuChild(t *testing.T) {
+	if os.Getenv("QUOTA_MENU_NATIVE_CHILD") != "1" {
+		t.Skip("isolated native helper")
+	}
+	useLanguage(t, "zh-CN")
+	f := newQuotaMenuFixture()
+	m := f.menu
+	m.show()
+	defer func() {
+		m.close()
+		select {
+		case <-m.done:
+		case <-time.After(5 * time.Second):
+			t.Error("UI thread did not exit")
+		}
+	}()
+	visible := user32.NewProc("IsWindowVisible")
+	nativeMenuWait(t, m, func(w *quotaMenuWindow) bool {
+		v, _, _ := visible.Call(w.hwnd)
+		return v != 0 && len(w.hits) > 0 && len(w.view.Accounts) == 3
+	})
+	dir := os.Getenv("QUOTA_MENU_EVIDENCE")
+	if dir == "" {
+		dir = t.TempDir()
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var imageErr error
+	nativeMenuDo(t, m, func(w *quotaMenuWindow) { imageErr = w.capture(filepath.Join(dir, "native-menu.png")) })
+	if imageErr != nil {
+		t.Fatal(imageErr)
+	}
+	// Read-only body clicks never reach the account action callback.
+	nativeMenuClick(t, m, 36, 120)
+	if f.confirmations.Load() != 0 || len(f.actions) != 0 || !m.shown.Load() {
+		t.Fatal("reading quota triggered a switch or hid the menu")
+	}
+	var fold quotaRect
+	var switchRect quotaRect
+	nativeMenuDo(t, m, func(w *quotaMenuWindow) {
+		for _, h := range w.hits {
+			if h.Fold == "synthetic-riley" {
+				fold = h.Rect
+			}
+			if h.Action.Kind == "switch" && h.Action.Account == "synthetic-alex" {
+				switchRect = h.Rect
+			}
+		}
+	})
+	nativeMenuClick(t, m, fold.X+5, fold.Y+5)
+	nativeMenuWait(t, m, func(w *quotaMenuWindow) bool { return w.collapsed["synthetic-riley"] })
+	nativeMenuClick(t, m, fold.X+5, fold.Y+5)
+	nativeMenuWait(t, m, func(w *quotaMenuWindow) bool { return !w.collapsed["synthetic-riley"] })
+	// Cancelled restart confirmation must not invoke an account action.
+	nativeMenuClick(t, m, switchRect.X+5, switchRect.Y+5)
+	if f.confirmations.Load() != 1 || len(f.actions) != 0 || !m.shown.Load() {
+		t.Fatal("cancelled confirmation still switched")
+	}
+	f.confirm.Store(true)
+	nativeMenuClick(t, m, switchRect.X+5, switchRect.Y+5)
+	select {
+	case a := <-f.actions:
+		if a.Kind != "switch" || a.Account != "synthetic-alex" || !a.Confirmed {
+			t.Fatalf("wrong explicit action: %+v", a)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("confirmed synthetic switch was not dispatched")
+	}
+	m.show()
+	nativeMenuWait(t, m, func(w *quotaMenuWindow) bool { return m.shown.Load() && w.view.Active == "synthetic-alex" })
+	nativeMenuDo(t, m, func(w *quotaMenuWindow) { procSendMessage.Call(w.hwnd, 0x100, 27, 0) })
+	if m.shown.Load() {
+		t.Fatal("Escape did not dismiss the menu")
+	}
+	m.show()
+	nativeMenuWait(t, m, func(w *quotaMenuWindow) bool { return m.shown.Load() })
+	nativeMenuDo(t, m, func(w *quotaMenuWindow) { procSendMessage.Call(w.hwnd, 0x10, 0, 0) })
+	if m.shown.Load() {
+		t.Fatal("user window close did not hide menu")
+	}
+	m.show()
+	nativeMenuWait(t, m, func(w *quotaMenuWindow) bool { return m.shown.Load() })
+	// A native outside-click signal only affects the synthetic menu window.
+	nativeMenuDo(t, m, func(w *quotaMenuWindow) { w.dismiss.open(time.Now().Add(-time.Second), quotaMenuInput{}) })
+	f.mu.Lock()
+	f.input = quotaMenuInput{buttons: 1, inside: false}
+	f.mu.Unlock()
+	nativeMenuWait(t, m, func(w *quotaMenuWindow) bool { return !m.shown.Load() })
+	f.mu.Lock()
+	f.input = quotaMenuInput{inside: true, ownForeground: true, knownForeground: true}
+	f.snapshot.Active = "synthetic-riley"
+	f.mu.Unlock()
+	m.show()
+	nativeMenuWait(t, m, func(w *quotaMenuWindow) bool { return m.shown.Load() && w.view.Active == "synthetic-riley" })
+	var toggleRect quotaRect
+	nativeMenuDo(t, m, func(w *quotaMenuWindow) {
+		thresholdHit := w.hit(154, w.bodyBottom+20)
+		if thresholdHit < 0 || w.hits[thresholdHit].Popup != "threshold" {
+			t.Error("threshold text is not an independent settings target")
+		}
+		for _, h := range w.hits {
+			if h.Action.Kind == "auto" {
+				toggleRect = h.Rect
+			}
+		}
+	})
+	nativeMenuClick(t, m, toggleRect.X+toggleRect.W-15, toggleRect.Y+15)
+	select {
+	case a := <-f.actions:
+		if a.Kind != "auto" || !a.Enabled {
+			t.Fatalf("wrong toggle: %+v", a)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("synthetic auto toggle not dispatched")
+	}
+	nativeMenuWait(t, m, func(w *quotaMenuWindow) bool { return m.shown.Load() && w.view.Auto })
+	// Long identities, failed queries and a constrained 150% viewport remain readable.
+	f.mu.Lock()
+	f.snapshot.Accounts[0].Name = "A very long account name with & characters"
+	f.snapshot.Accounts[0].Email = "long.account.identity.for.testing@example.com"
+	f.snapshot.Accounts[0].Problem = usageLimitedMessage
+	f.mu.Unlock()
+	nativeMenuDo(t, m, func(w *quotaMenuWindow) {
+		w.menu.options.dpiOverride = 144
+		w.reload(false)
+		imageErr = w.capture(filepath.Join(dir, "native-menu-stress.png"))
+	})
+	if imageErr != nil {
+		t.Fatal(imageErr)
+	}
+	nativeMenuDo(t, m, func(w *quotaMenuWindow) {
+		var r windows.Rect
+		procGetWindowRect.Call(w.hwnd, uintptr(unsafe.Pointer(&r)))
+		if int(r.Left) < w.work.X || int(r.Top) < w.work.Y || int(r.Right) > w.work.X+w.work.W || int(r.Bottom) > w.work.Y+w.work.H {
+			t.Error("scaled window escaped its work area")
+		}
+		procSendMessage.Call(w.hwnd, 0x20A, uintptr(uint32(0xff880000)), 0)
+	})
+	nativeMenuDo(t, m, func(w *quotaMenuWindow) {
+		if w.contentHeight > w.bodyBottom-w.bodyTop && w.scroll == 0 {
+			t.Error("overflowing body did not scroll")
+		}
+	})
+	if len(f.errors) != 0 {
+		t.Fatal(<-f.errors)
+	}
+	m.close()
+	select {
+	case <-m.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("window close did not exit native thread")
+	}
+	t.Log("NATIVE_QUOTA_MENU_VERIFIED: first display, fields, read-only clicks, fold, cancel/confirm, Escape, outside click, reopen, scaled bounds, scroll, shutdown; only synthetic actions")
+}
+
+// The interactive reviewer operates only this test host via window messages.
+// It has no switcher instance, disk state, credential reader or usage client.
+func TestNativeQuotaMenuReview(t *testing.T) {
+	if os.Getenv("QUOTA_MENU_REVIEW") != "1" {
+		t.Skip("isolated interactive review host")
+	}
+	useLanguage(t, "zh-CN")
+	f := newQuotaMenuFixture()
+	m := f.menu
+	f.confirm.Store(false)
+	m.show()
+	defer func() {
+		m.close()
+		select {
+		case <-m.done:
+		case <-time.After(5 * time.Second):
+			t.Error("review UI thread did not exit")
+		}
+	}()
+	nativeMenuWait(t, m, func(w *quotaMenuWindow) bool { return m.shown.Load() && len(w.hits) > 0 })
+	scanner := bufio.NewScanner(os.Stdin)
+	fmt.Println("ISOLATED_NATIVE_REVIEW_READY")
+	for scanner.Scan() {
+		var req struct {
+			Op, Path  string
+			X, Y, Key int
+			Confirm   bool
+		}
+		if err := json.Unmarshal(scanner.Bytes(), &req); err != nil {
+			fmt.Println(err)
+			continue
+		}
+		if req.Op == "close" {
+			return
+		}
+		if req.Op == "open" {
+			m.show()
+		}
+		if req.Op == "confirm" {
+			f.confirm.Store(req.Confirm)
+		}
+		if req.Op == "click" {
+			nativeMenuDo(t, m, func(w *quotaMenuWindow) {
+				lp := uintptr(uint16(w.scale(req.X))) | uintptr(uint16(w.scale(req.Y)))<<16
+				qmPostMessage.Call(w.hwnd, 0x201, 1, lp)
+				qmPostMessage.Call(w.hwnd, 0x202, 0, lp)
+			})
+		}
+		if req.Op == "key" {
+			m.mu.Lock()
+			hwnd := m.hwnd
+			m.mu.Unlock()
+			qmPostMessage.Call(hwnd, 0x100, uintptr(req.Key), 0)
+		}
+		nativeMenuDo(t, m, func(w *quotaMenuWindow) {
+			if req.Op == "capture" {
+				if err := w.capture(req.Path); err != nil {
+					fmt.Println(err)
+				}
+			}
+			var popupItems []string
+			popupVisible := false
+			if w.nativePopup != 0 {
+				count, _, _ := user32.NewProc("GetMenuItemCount").Call(w.nativePopup)
+				for i := uintptr(0); i < count && i < 20; i++ {
+					chars := make([]uint16, 256)
+					user32.NewProc("GetMenuStringW").Call(w.nativePopup, i, uintptr(unsafe.Pointer(&chars[0])), 256, 0x400)
+					popupItems = append(popupItems, windows.UTF16ToString(chars))
+				}
+				var bounds windows.Rect
+				ok, _, _ := user32.NewProc("GetMenuItemRect").Call(w.hwnd, w.nativePopup, 0, uintptr(unsafe.Pointer(&bounds)))
+				popupVisible = ok != 0 && bounds.Right > bounds.Left
+			}
+			output := struct {
+				Visible       bool
+				Width, Height int
+				View          quotaMenuView
+				Hits          []quotaMenuHit
+				Confirmations int32
+				PopupVisible  bool
+				PopupItems    []string
+			}{m.shown.Load(), w.width, w.height, w.view, w.hits, f.confirmations.Load(), popupVisible, popupItems}
+			encoded, _ := json.Marshal(output)
+			fmt.Println(string(encoded))
+		})
+	}
+}

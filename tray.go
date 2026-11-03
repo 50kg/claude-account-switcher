@@ -29,6 +29,7 @@ type tray struct {
 	autostart   *systray.MenuItem
 	lastIcon    string
 	updates     chan struct{}
+	menu        quotaMenu
 }
 
 func (t *tray) onReady() {
@@ -68,6 +69,14 @@ func (t *tray) onReady() {
 	t.autostart = systray.AddMenuItemCheckbox(tr("Start at login", "开机启动"), "", autostartEnabled())
 	folder := systray.AddMenuItem(tr("Open data folder", "打开数据文件夹"), "")
 	quit := systray.AddMenuItem(tr("Quit", "退出"), "")
+	t.menu = newQuotaMenu(func() quotaMenuView {
+		return makeQuotaMenuView(t.s.snapshot(), autostartEnabled(), time.Now())
+	}, t.handleQuotaMenuAction, t.s.setStatus)
+	if t.menu != nil {
+		// Windows right-click uses the native custom menu. The original left-
+		// click menu remains available if the custom window cannot be created.
+		systray.SetOnSecondaryTapped(func() { go t.menu.show() })
+	}
 
 	for i, item := range t.accounts {
 		go func() {
@@ -230,6 +239,42 @@ func (t *tray) render() {
 			item.Enable()
 		}
 	}
+	if t.menu != nil {
+		t.menu.update()
+	}
+}
+
+func (t *tray) handleQuotaMenuAction(action quotaMenuAction) error {
+	if err := validateQuotaMenuAction(action, t.s.snapshot()); err != nil {
+		return err
+	}
+	switch action.Kind {
+	case "switch":
+		t.s.run(tr("Switch", "切换账号"), func() error { return t.s.switchTo(action.Account, byHand) })
+	case "add":
+		t.s.run(tr("Add account", "添加账号"), t.s.addAccount)
+	case "import":
+		t.s.run(tr("Import", "导入聊天"), t.s.importChats)
+	case "auto":
+		t.s.setAuto(action.Enabled)
+	case "spend":
+		t.s.setSpendWeekly(action.Enabled)
+	case "threshold":
+		t.s.setThreshold(action.Threshold)
+	case "autostart":
+		if err := setAutostart(action.Enabled); err != nil {
+			return err
+		}
+		setChecked(t.autostart, autostartEnabled())
+		t.s.onChange()
+	case "folder":
+		shellOpen(t.s.dir)
+	case "update":
+		t.s.requestUpdate(context.Background(), shellOpen)
+	case "quit":
+		systray.Quit()
+	}
+	return nil
 }
 
 // menuTab right-aligns the usage on Windows, where a tab in a menu title
