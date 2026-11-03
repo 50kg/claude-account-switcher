@@ -28,6 +28,9 @@ var (
 	qmUpdateWindow   = user32.NewProc("UpdateWindow")
 	qmGetClientRect  = user32.NewProc("GetClientRect")
 	qmGetCursorPos   = user32.NewProc("GetCursorPos")
+	qmClientScreen   = user32.NewProc("ClientToScreen")
+	qmScreenClient   = user32.NewProc("ScreenToClient")
+	qmSetCursor      = user32.NewProc("SetCursor")
 	qmForeground     = user32.NewProc("GetForegroundWindow")
 	qmGetAncestor    = user32.NewProc("GetAncestor")
 	qmKeyState       = user32.NewProc("GetAsyncKeyState")
@@ -35,6 +38,7 @@ var (
 	qmGetMonitorDPI  = windows.NewLazySystemDLL("shcore.dll").NewProc("GetDpiForMonitor")
 	qmLoadCursor     = user32.NewProc("LoadCursorW")
 	qmSetCapture     = user32.NewProc("SetCapture")
+	qmGetCapture     = user32.NewProc("GetCapture")
 	qmReleaseCapture = user32.NewProc("ReleaseCapture")
 	qmWindows        sync.Map
 	qmClassOnce      sync.Once
@@ -68,18 +72,19 @@ type qmWindowClass struct {
 }
 
 type nativeQuotaMenu struct {
-	view     func() quotaMenuView
-	onAction func(quotaMenuAction) error
-	onError  func(string)
-	mu       sync.Mutex
-	hwnd     uintptr
-	started  bool
-	closing  bool
-	ready    chan struct{}
-	done     chan struct{}
-	shown    atomic.Bool
-	jobs     chan func(*quotaMenuWindow)
-	options  nativeQuotaMenuOptions
+	view            func() quotaMenuView
+	onAction        func(quotaMenuAction) error
+	onError         func(string)
+	mu              sync.Mutex
+	hwnd            uintptr
+	started         bool
+	closing         bool
+	ready           chan struct{}
+	done            chan struct{}
+	shown           atomic.Bool
+	jobs            chan func(*quotaMenuWindow)
+	options         nativeQuotaMenuOptions
+	preferencesPath string
 }
 
 // Options are used by isolated tests; normal startup uses the zero value.
@@ -116,8 +121,8 @@ func (d *quotaMenuDismissal) hide(now time.Time, in quotaMenuInput) bool {
 	return pressed != 0 && !in.inside || d.owned && in.knownForeground && !in.ownForeground
 }
 
-func newQuotaMenu(view func() quotaMenuView, action func(quotaMenuAction) error, onError func(string)) quotaMenu {
-	return &nativeQuotaMenu{view: view, onAction: action, onError: onError, jobs: make(chan func(*quotaMenuWindow), 16)}
+func newQuotaMenu(view func() quotaMenuView, action func(quotaMenuAction) error, onError func(string), preferencesPath string) quotaMenu {
+	return &nativeQuotaMenu{view: view, onAction: action, onError: onError, jobs: make(chan func(*quotaMenuWindow), 16), preferencesPath: preferencesPath}
 }
 
 func (m *nativeQuotaMenu) start() bool {
@@ -179,7 +184,7 @@ func (m *nativeQuotaMenu) run() {
 		_ = windows.GetModuleHandleEx(0, nil, &instance)
 		cursor, _, _ := qmLoadCursor.Call(0, 32512)
 		wc := qmWindowClass{Proc: qmCallback, Instance: uintptr(instance), Cursor: cursor,
-			ClassName: windows.StringToUTF16Ptr("ClaudeQuotaContextMenu"), Style: 0x20000} // CS_DROPSHADOW
+			ClassName: windows.StringToUTF16Ptr("ClaudeQuotaContextMenu"), Style: 0x20008} // CS_DROPSHADOW | CS_DBLCLKS
 		wc.Size = uint32(unsafe.Sizeof(wc))
 		if result, _, err := qmRegisterClass.Call(uintptr(unsafe.Pointer(&wc))); result == 0 {
 			qmClassErr = fmt.Errorf("register quota menu: %w", err)
@@ -187,6 +192,11 @@ func (m *nativeQuotaMenu) run() {
 	})
 	var err error
 	w := &quotaMenuWindow{menu: m, focus: -1, hover: -1, pressed: -1, dpi: 96}
+	if height, loadErr := loadQuotaMenuHeight(m.preferencesPath); loadErr == nil {
+		w.preferredHeight = height
+	} else {
+		w.preferenceError(loadErr)
+	}
 	if qmClassErr != nil {
 		err = qmClassErr
 	} else {
@@ -274,6 +284,8 @@ type quotaMenuWindow struct {
 	focus, hover, pressed                                          int
 	scrollDragging                                                 bool
 	scrollDragOffset, wheelRemainder                               int
+	preferredHeight                                                int
+	heightDrag                                                     *quotaMenuHeightDrag
 	overlay                                                        *quotaMenuOverlay
 	dismiss                                                        quotaMenuDismissal
 	tooltip                                                        uintptr
@@ -302,7 +314,7 @@ func quotaMenuWindowProc(hwnd, msg, wp, lp uintptr) uintptr {
 		}
 		return 0
 	case qmRefresh:
-		if w.menu.shown.Load() {
+		if w.menu.shown.Load() && w.heightDrag == nil {
 			w.reload(false)
 		}
 		return 0
@@ -319,11 +331,15 @@ func quotaMenuWindowProc(hwnd, msg, wp, lp uintptr) uintptr {
 	case 0x14: // WM_ERASEBKGND: the buffered painter fills everything
 		return 1
 	case 0x113: // WM_TIMER
-		if w.menu.shown.Load() && w.dismiss.hide(time.Now(), w.input()) {
+		if w.menu.shown.Load() && w.heightDrag == nil && w.dismiss.hide(time.Now(), w.input()) {
 			w.hide()
 		}
 		return 0
 	case 0x200: // WM_MOUSEMOVE
+		if w.heightDrag != nil {
+			w.dragHeight(qmPoint{X: int32(int16(lp & 0xffff)), Y: int32(int16(lp >> 16))})
+			return 0
+		}
 		if w.scrollDragging {
 			track, thumb := w.scrollbar()
 			travel := track.H - thumb.H
@@ -338,6 +354,10 @@ func quotaMenuWindowProc(hwnd, msg, wp, lp uintptr) uintptr {
 		return 0
 	case 0x201: // WM_LBUTTONDOWN
 		x, y := int(int16(lp&0xffff))*96/w.dpi, int(int16(lp>>16))*96/w.dpi
+		if edge := w.heightEdge(x, y); edge != 0 {
+			w.beginHeightDrag(edge, qmPoint{X: int32(int16(lp & 0xffff)), Y: int32(int16(lp >> 16))})
+			return 0
+		}
 		if track, thumb := w.scrollbar(); w.overlay == nil && track.contains(x, y) {
 			w.pressed = -1
 			if thumb.contains(x, y) {
@@ -355,6 +375,10 @@ func quotaMenuWindowProc(hwnd, msg, wp, lp uintptr) uintptr {
 		w.pressed = w.hit(x, y)
 		return 0
 	case 0x202: // WM_LBUTTONUP
+		if w.heightDrag != nil {
+			w.finishHeightDrag(false)
+			return 0
+		}
 		if w.scrollDragging {
 			w.stopScrollDrag()
 			return 0
@@ -368,7 +392,7 @@ func quotaMenuWindowProc(hwnd, msg, wp, lp uintptr) uintptr {
 		w.pressed = -1
 		return 0
 	case 0x20A: // WM_MOUSEWHEEL
-		if w.overlay != nil {
+		if w.overlay != nil || w.heightDrag != nil {
 			return 0
 		}
 		w.wheelRemainder += int(int16(wp >> 16))
@@ -378,11 +402,32 @@ func quotaMenuWindowProc(hwnd, msg, wp, lp uintptr) uintptr {
 		return 0
 	case 0x215: // WM_CAPTURECHANGED
 		w.scrollDragging = false
+		w.finishHeightDrag(true)
 		return 0
 	case 0x1F: // WM_CANCELMODE
+		w.finishHeightDrag(true)
 		w.stopScrollDrag()
 		return 0
+	case 0x203: // WM_LBUTTONDBLCLK
+		if w.heightEdge(int(int16(lp&0xffff))*96/w.dpi, int(int16(lp>>16))*96/w.dpi) != 0 {
+			w.resetHeight()
+		}
+		return 0
+	case 0x20: // WM_SETCURSOR
+		var p qmPoint
+		qmGetCursorPos.Call(uintptr(unsafe.Pointer(&p)))
+		qmScreenClient.Call(w.hwnd, uintptr(unsafe.Pointer(&p)))
+		if w.heightDrag != nil || w.heightEdge(int(p.X)*96/w.dpi, int(p.Y)*96/w.dpi) != 0 {
+			w.resizeCursor()
+			return 1
+		}
 	case 0x100: // WM_KEYDOWN
+		if w.heightDrag != nil {
+			if wp == 27 {
+				w.finishHeightDrag(true)
+			}
+			return 0
+		}
 		switch wp {
 		case 27:
 			if w.overlay != nil {
@@ -430,6 +475,7 @@ func quotaMenuWindowProc(hwnd, msg, wp, lp uintptr) uintptr {
 		}
 		return 0
 	case 0x02E0: // WM_DPICHANGED
+		w.finishHeightDrag(true)
 		w.dpi = int(wp & 0xffff)
 		w.makeFonts()
 		w.reload(false)
@@ -439,12 +485,16 @@ func quotaMenuWindowProc(hwnd, msg, wp, lp uintptr) uintptr {
 		closing := w.menu.closing
 		w.menu.mu.Unlock()
 		if closing {
+			w.finishHeightDrag(true)
+			w.stopScrollDrag()
 			qmDestroyWindow.Call(hwnd)
 		} else {
 			w.hide()
 		}
 		return 0
 	case 0x02: // WM_DESTROY
+		w.heightDrag = nil
+		w.scrollDragging = false
 		procKillTimer.Call(hwnd, 2)
 		qmPostQuit.Call(0)
 		return 0
@@ -525,6 +575,9 @@ func (w *quotaMenuWindow) reload(show bool) {
 	}
 	// The flat settings menu must also fit when no accounts have been added.
 	height := max(w.bodyTop+min(w.contentHeight, quotaMenuMaxBodyHeight)+quotaMenuFooterHeight, quotaChoicesHeight(w.choices("settings"))+16)
+	if w.preferredHeight > 0 {
+		height = max(quotaMenuMinHeight, w.preferredHeight)
+	}
 	position := placeQuotaMenu(w.work, int(w.anchor.X), int(w.anchor.Y), w.scale(520), w.scale(height))
 	w.width = position.W * 96 / w.dpi
 	w.height = position.H * 96 / w.dpi
@@ -553,6 +606,7 @@ func (w *quotaMenuWindow) reload(show bool) {
 }
 
 func (w *quotaMenuWindow) hide() {
+	w.finishHeightDrag(true)
 	w.stopScrollDrag()
 	procKillTimer.Call(w.hwnd, 2)
 	qmShowWindow.Call(w.hwnd, 0)
@@ -585,7 +639,9 @@ func (w *quotaMenuWindow) scrollbar() (track, thumb quotaRect) {
 func (w *quotaMenuWindow) stopScrollDrag() {
 	if w.scrollDragging {
 		w.scrollDragging = false
-		qmReleaseCapture.Call()
+		if capture, _, _ := qmGetCapture.Call(); capture == w.hwnd {
+			qmReleaseCapture.Call()
+		}
 	}
 	w.pressed = -1
 }

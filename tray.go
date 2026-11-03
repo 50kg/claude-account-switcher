@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -43,7 +44,7 @@ func (t *tray) onReady() {
 	}
 	t.menu = newQuotaMenu(func() quotaMenuView {
 		return makeQuotaMenuView(t.s.snapshot(), autostartEnabled(), time.Now())
-	}, t.handleQuotaMenuAction, t.s.setStatus)
+	}, t.handleQuotaMenuAction, t.s.setStatus, filepath.Join(t.s.dir, "ui.json"))
 	if t.menu != nil {
 		show := func() { go t.menu.show() }
 		systray.SetOnTapped(show)

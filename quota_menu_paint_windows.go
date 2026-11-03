@@ -131,6 +131,18 @@ func (p *qmPainter) line(x, y, x2, y2 int, color uint32, weight int) {
 }
 
 func (p *qmPainter) text(text string, r quotaRect, font int, color uint32, right bool) {
+	align := uintptr(0)
+	if right {
+		align = 2
+	}
+	p.alignedText(text, r, font, color, align)
+}
+
+func (p *qmPainter) centeredText(text string, r quotaRect, font int, color uint32) {
+	p.alignedText(text, r, font, color, 1) // DT_CENTER
+}
+
+func (p *qmPainter) alignedText(text string, r quotaRect, font int, color uint32, align uintptr) {
 	if r.W <= 0 || r.H <= 0 || text == "" {
 		return
 	}
@@ -140,10 +152,7 @@ func (p *qmPainter) text(text string, r quotaRect, font int, color uint32, right
 	old, _, _ := qmSelectObject.Call(p.dc, p.w.fonts[font])
 	qmSetTextColor.Call(p.dc, qmColor(color))
 	qmSetBkMode.Call(p.dc, 1)
-	flags := uintptr(0x20 | 4 | 0x800 | 0x8000) // single line, center vertically, no '&' shortcuts, ellipsis
-	if right {
-		flags |= 2
-	}
+	flags := uintptr(0x20|4|0x800|0x8000) | align // single line, center vertically, no '&' shortcuts, ellipsis
 	qmDrawText.Call(p.dc, uintptr(unsafe.Pointer(&chars[0])), uintptr(len(chars)-1), uintptr(unsafe.Pointer(&rect)), flags)
 	qmSelectObject.Call(p.dc, old)
 	runtime.KeepAlive(chars)
@@ -196,6 +205,10 @@ func (w *quotaMenuWindow) draw(dc uintptr) {
 	w.hits = nil
 	w.resetTooltips()
 	p.fill(quotaRect{0, 0, w.width, w.height}, qmWhite)
+	p.round(quotaRect{w.width/2 - 16, 3, 32, 3}, 3, 0xc4ccd7, 0xc4ccd7)
+	resizeHint := tr("Drag the top or bottom edge to resize; double-click to reset", "拖动顶部或底部边缘调整高度；双击恢复默认")
+	w.addFixedTooltip(quotaRect{1, 0, w.width - 2, 7}, resizeHint)
+	w.addFixedTooltip(quotaRect{1, w.height - 6, w.width - 2, 6}, resizeHint)
 	p.ring(30, 23)
 	p.text(tr("Claude Account Switcher", "Claude 账号切换器"), quotaRect{50, 8, 250, 30}, 2, qmInk, false)
 	updated := tr("Waiting for usage", "等待用量更新")
@@ -207,7 +220,7 @@ func (w *quotaMenuWindow) draw(dc uintptr) {
 	if w.view.Status != "" {
 		p.fill(quotaRect{1, quotaMenuHeaderHeight, w.width - 2, 30}, 0xfaf7ef)
 		p.text(w.view.Status, quotaRect{20, quotaMenuHeaderHeight + 4, w.width - 40, 23}, 1, qmMuted, false)
-		w.addTooltip(quotaRect{10, quotaMenuHeaderHeight, w.width - 20, 30}, w.view.Status)
+		w.addFixedTooltip(quotaRect{10, quotaMenuHeaderHeight, w.width - 20, 30}, w.view.Status)
 	}
 	saved, _, _ := qmSaveDC.Call(dc)
 	qmIntersectClip.Call(dc, 0, uintptr(w.scale(w.bodyTop)), uintptr(w.scale(w.width)), uintptr(w.scale(w.bodyBottom)))
@@ -305,14 +318,14 @@ func (p *qmPainter) account(a quotaMenuAccount, y, height int) {
 	w.addTooltip(quotaRect{20, y + 7, max(1, leftEnd-20), 31}, a.Name+"\n"+a.Plan+"\n"+a.Email)
 	if a.Current {
 		p.round(buttonRect, 4, 0xeaf1fd, 0xeaf1fd)
-		p.text(tr("✓ Current", "✓ 当前账号"), quotaRect{buttonRect.X + 4, buttonRect.Y, buttonRect.W - 8, 27}, 1, 0x215daa, true)
+		p.centeredText(tr("✓ Current", "✓ 当前账号"), buttonRect, 1, 0x215daa)
 	} else {
 		color := uint32(qmInk)
 		if w.view.Busy {
 			color = qmMuted
 		}
 		p.round(buttonRect, 5, qmWhite, 0xd2d9e3)
-		p.text(tr("Switch", "切换账号"), quotaRect{buttonRect.X + 6, buttonRect.Y, buttonRect.W - 12, 27}, 1, color, false)
+		p.centeredText(tr("Switch", "切换账号"), buttonRect, 1, color)
 		if !w.view.Busy {
 			w.addHit(quotaMenuHit{Rect: buttonRect, Action: quotaMenuAction{Kind: "switch", Account: a.ID, Active: w.view.Active}}, true)
 		}
@@ -416,7 +429,9 @@ func (p *qmPainter) footer() {
 	p.fill(quotaRect{1, y + 35, w.width - 2, 1}, qmLine)
 	labels := []string{tr("Add account", "添加账号"), tr("Settings", "设置"), tr("Quit", "退出")}
 	for i, label := range labels {
-		r := quotaRect{12 + i*(w.width-24)/len(labels), y + 39, (w.width - 24) / len(labels), 30}
+		r := quotaRect{12 + i*(w.width-24)/len(labels), y + 39, (w.width - 24) / len(labels), 28}
+		textW := p.measure(label, 0)
+		groupX := r.X + (r.W-textW-20)/2
 		hit := quotaMenuHit{Rect: r}
 		switch i {
 		case 0:
@@ -427,11 +442,12 @@ func (p *qmPainter) footer() {
 			hit.Action = quotaMenuAction{Kind: "quit"}
 		}
 		if i == 0 && w.view.Busy {
-			p.text(label, quotaRect{r.X + 22, r.Y, r.W - 22, r.H}, 0, qmMuted, false)
+			p.footerIcon(i, groupX+6, r.Y+14)
+			p.text(label, quotaRect{groupX + 20, r.Y, textW, r.H}, 0, qmMuted, false)
 			continue
 		}
-		p.footerIcon(i, r.X+8, r.Y+15)
-		p.text(label, quotaRect{r.X + 22, r.Y, r.W - 22, r.H}, 0, qmInk, false)
+		p.footerIcon(i, groupX+6, r.Y+14)
+		p.text(label, quotaRect{groupX + 20, r.Y, textW, r.H}, 0, qmInk, false)
 		w.addHit(hit, false)
 	}
 }
@@ -502,6 +518,13 @@ func (w *quotaMenuWindow) addTooltip(r quotaRect, text string) {
 	}
 	// Only the currently visible part of a body row owns its tooltip.
 	if r.Y < w.bodyTop || r.Y+r.H > w.bodyBottom {
+		return
+	}
+	w.addFixedTooltip(r, text)
+}
+
+func (w *quotaMenuWindow) addFixedTooltip(r quotaRect, text string) {
+	if w.tooltip == 0 || text == "" {
 		return
 	}
 	chars := windows.StringToUTF16(text)

@@ -88,7 +88,7 @@ func (p *qmPainter) confirmation(o *quotaMenuOverlay) {
 	cancel := quotaRect{x + width - 240, y + height - 48, 90, 32}
 	accept := quotaRect{x + width - 138, cancel.Y, 120, 32}
 	p.round(cancel, 4, qmWhite, 0xcfd6e0)
-	p.text(tr("Cancel", "取消"), quotaRect{cancel.X + 12, cancel.Y, cancel.W - 24, cancel.H}, 0, qmInk, true)
+	p.centeredText(tr("Cancel", "取消"), cancel, 0, qmInk)
 	w.addHit(quotaMenuHit{Rect: cancel, Dismiss: true}, false)
 	color := uint32(qmBlue)
 	if w.view.Busy {
@@ -99,5 +99,5 @@ func (p *qmPainter) confirmation(o *quotaMenuOverlay) {
 		w.addHit(quotaMenuHit{Rect: accept, Action: a}, false)
 	}
 	p.round(accept, 4, color, color)
-	p.text(tr("Restart Claude", "确认并重启"), quotaRect{accept.X + 10, accept.Y, accept.W - 20, accept.H}, 0, qmWhite, true)
+	p.centeredText(tr("Restart Claude", "确认并重启"), accept, 0, qmWhite)
 }

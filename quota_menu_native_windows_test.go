@@ -71,7 +71,7 @@ func newQuotaMenuFixture() *quotaMenuFixture {
 			f.actions <- a
 		}
 		return err
-	}, func(s string) { f.errors <- s }).(*nativeQuotaMenu)
+	}, func(s string) { f.errors <- s }, "").(*nativeQuotaMenu)
 	m.options = nativeQuotaMenuOptions{noActivate: true, input: func(uintptr) quotaMenuInput { f.mu.Lock(); defer f.mu.Unlock(); return f.input }}
 	f.menu = m
 	return f
@@ -157,7 +157,7 @@ func nativeMenuClickHit(t *testing.T, m *nativeQuotaMenu, match func(quotaMenuHi
 
 func TestNativeQuotaMenuDoesNotStartOnHiddenUpdates(t *testing.T) {
 	reads := 0
-	m := newQuotaMenu(func() quotaMenuView { reads++; return quotaMenuView{} }, func(quotaMenuAction) error { return nil }, nil).(*nativeQuotaMenu)
+	m := newQuotaMenu(func() quotaMenuView { reads++; return quotaMenuView{} }, func(quotaMenuAction) error { return nil }, nil, "").(*nativeQuotaMenu)
 	m.update()
 	if reads != 0 || m.started || m.hwnd != 0 {
 		t.Fatal("background update created a window or read account state")
@@ -216,6 +216,7 @@ func TestNativeQuotaMenuChild(t *testing.T) {
 	useLanguage(t, "zh-CN")
 	f := newQuotaMenuFixture()
 	m := f.menu
+	m.preferencesPath = filepath.Join(t.TempDir(), "ui.json")
 	m.show()
 	defer func() {
 		m.close()
@@ -509,6 +510,7 @@ func TestNativeQuotaMenuChild(t *testing.T) {
 		}
 		imageErr = w.capture(filepath.Join(dir, "native-five-accounts.png"))
 	})
+	verifyNativeMenuResizing(t, f, dir)
 	// Long identities, failed queries and a constrained 150% viewport remain readable.
 	f.mu.Lock()
 	f.snapshot.Accounts[0].Name = "A very long account name with & characters"
@@ -667,6 +669,7 @@ func TestNativeQuotaMenuReview(t *testing.T) {
 	f := newQuotaMenuFixture()
 	f.fiveAccounts()
 	m := f.menu
+	m.preferencesPath = filepath.Join(t.TempDir(), "ui.json")
 	m.show()
 	defer func() {
 		m.close()
@@ -683,6 +686,7 @@ func TestNativeQuotaMenuReview(t *testing.T) {
 		var req struct {
 			Op, Path  string
 			X, Y, Key int
+			DX, DY    int
 		}
 		if err := json.Unmarshal(scanner.Bytes(), &req); err != nil {
 			fmt.Println(err)
@@ -699,6 +703,19 @@ func TestNativeQuotaMenuReview(t *testing.T) {
 				lp := uintptr(uint16(w.scale(req.X))) | uintptr(uint16(w.scale(req.Y)))<<16
 				qmPostMessage.Call(w.hwnd, 0x201, 1, lp)
 				qmPostMessage.Call(w.hwnd, 0x202, 0, lp)
+			})
+		}
+		if req.Op == "drag" || req.Op == "doubleclick" {
+			nativeMenuDo(t, m, func(w *quotaMenuWindow) {
+				start := uintptr(uint16(w.scale(req.X))) | uintptr(uint16(w.scale(req.Y)))<<16
+				if req.Op == "doubleclick" {
+					procSendMessage.Call(w.hwnd, 0x203, 0, start)
+					return
+				}
+				move := uintptr(uint16(w.scale(req.X+req.DX))) | uintptr(uint16(w.scale(req.Y+req.DY)))<<16
+				procSendMessage.Call(w.hwnd, 0x201, 1, start)
+				procSendMessage.Call(w.hwnd, 0x200, 1, move)
+				procSendMessage.Call(w.hwnd, 0x202, 0, move)
 			})
 		}
 		if req.Op == "key" {
@@ -722,13 +739,14 @@ func TestNativeQuotaMenuReview(t *testing.T) {
 				}
 			}
 			output := struct {
-				Visible       bool
-				Width, Height int
-				View          quotaMenuView
-				Hits          []quotaMenuHit
-				Overlay       string
-				PopupItems    []string
-			}{m.shown.Load(), w.width, w.height, w.view, w.hits, overlay, popupItems}
+				Visible         bool
+				Width, Height   int
+				View            quotaMenuView
+				Hits            []quotaMenuHit
+				Overlay         string
+				PopupItems      []string
+				PreferredHeight int
+			}{m.shown.Load(), w.width, w.height, w.view, w.hits, overlay, popupItems, w.preferredHeight}
 			encoded, _ := json.Marshal(output)
 			fmt.Println(string(encoded))
 		})
