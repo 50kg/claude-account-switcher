@@ -157,6 +157,7 @@ func (t *tray) loop() {
 		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 		t.s.refresh(ctx)
 		cancel()
+		go t.s.refreshBilling()
 	}
 }
 
@@ -225,7 +226,7 @@ func (t *tray) render() {
 		}
 		a := snap.Accounts[i]
 		detail := compactRemainingText(a, now)
-		item.SetTitle(a.label() + menuTab + detail)
+		item.SetTitle(a.label() + menuTab + detail + " · " + a.billingText(now))
 		setChecked(item, a.UUID == snap.Active)
 		if snap.Busy {
 			item.Disable()
@@ -292,6 +293,8 @@ func (t *tray) handleQuotaMenuAction(action quotaMenuAction) error {
 		return saveQuotaMenuAccountOrder(filepath.Join(t.s.dir, "ui.json"), action.AccountOrder)
 	case "account-export":
 		return handleAccountExport(t.s, action.Account)
+	case "billing-web":
+		return verifyBillingWeb(t.s, action.Account)
 	case "account-import":
 		return handleAccountImport(t.s)
 	case "sync":

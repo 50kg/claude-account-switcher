@@ -47,6 +47,8 @@ func newQuotaMenuFixture() *quotaMenuFixture {
 		at := now.Add(time.Duration([]int{40, 220, 130}[i]) * time.Minute)
 		f.snapshot.Accounts = append(f.snapshot.Accounts, Account{UUID: a.id, Name: a.name, Email: a.email, Plan: a.plan, Usage: &Usage{Session: a.session, Weekly: a.week, SessionReset: at, WeeklyReset: a.reset, CheckedAt: now, ModelWeekly: []ModelWeeklyUsage{{Name: "Fable", Percent: a.model, ResetsAt: a.reset, AllowancePercent: &allowance}}}})
 	}
+	f.snapshot.Accounts[0].Billing = &billingInfo{Date: "2026-11-24", NextCheck: now.Add(billingInterval)}
+	f.snapshot.Accounts[1].Billing = &billingInfo{Date: "2026-11-18", Ending: true, NextCheck: now.Add(billingInterval)}
 	m := newQuotaMenu(func() quotaMenuView {
 		f.mu.Lock()
 		defer f.mu.Unlock()

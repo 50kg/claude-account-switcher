@@ -353,6 +353,10 @@ func (p *qmPainter) account(a quotaMenuAccount, index, y, height int) {
 		}
 	}
 	qy := y + quotaAccountHeaderHeight
+	if a.Billing != "" {
+		p.text(a.Billing, quotaRect{20, qy - 2, w.width - 40, quotaBillingHeight}, 1, qmMuted, false)
+		qy += quotaBillingHeight
+	}
 	if a.Problem != "" || a.Stale {
 		problem := a.Problem
 		if problem == "" {

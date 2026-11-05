@@ -19,6 +19,12 @@ import (
 const version = "0.3.6"
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "-apple-date" {
+		os.Exit(runAppleNote())
+	}
+	if len(os.Args) == 2 && os.Args[1] == "-billing-web" {
+		os.Exit(runBillingWeb())
+	}
 	// The dialog process started by askInDialogProcess.
 	if len(os.Args) == 2 && os.Args[1] == resumeFlag {
 		os.Exit(runResumeDialog())

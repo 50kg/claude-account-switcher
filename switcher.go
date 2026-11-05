@@ -16,13 +16,15 @@ import (
 
 // Account is a Claude account the switcher has seen signed in.
 type Account struct {
-	UUID    string `json:"uuid"`
-	Org     string `json:"org"`
-	Name    string `json:"name"`
-	Email   string `json:"email"`
-	Plan    string `json:"plan"`
-	Usage   *Usage `json:"usage,omitempty"`
-	Problem string `json:"problem,omitempty"`
+	UUID      string       `json:"uuid"`
+	Org       string       `json:"org"`
+	Name      string       `json:"name"`
+	Email     string       `json:"email"`
+	Plan      string       `json:"plan"`
+	Usage     *Usage       `json:"usage,omitempty"`
+	Billing   *billingInfo `json:"billing,omitempty"`
+	AppleDate *billingNote `json:"appleDate,omitempty"`
+	Problem   string       `json:"problem,omitempty"`
 	// A rate limit belongs to the usage endpoint, not the desktop sign-in.
 	UsageRetryAt time.Time `json:"usageRetryAt,omitempty"`
 }
@@ -125,6 +127,8 @@ type switcher struct {
 	backoff          map[string]time.Time
 	strikes          map[string]int
 	usageSyncing     atomic.Bool
+	billingSyncing   atomic.Bool
+	billingWindow    atomic.Bool
 	refreshMinutes   int
 	lastUsageAttempt map[string]time.Time
 }

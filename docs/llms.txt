@@ -17,7 +17,7 @@ It switches the Claude desktop app (including the Microsoft Store version on Win
 - License: Apache 2.0
 - Written in Go, one file, no installer, no runtime
 - Windows install via winget: `winget install SnlperStripes.ClaudeAccountSwitcher`
-- Tokens stay encrypted as Claude stored them and are only sent to api.anthropic.com. The Chinese Windows maintenance fork adds an optional, user-initiated `.cas-account` export; this file is deliberately unencrypted and contains one account's sign-in and cookies. Temporary cookie files are created in the chosen export folder and removed when the operation finishes. The only app network requests are to api.anthropic.com and an optional daily GitHub version check
+- OAuth tokens stay encrypted as Claude stored them and are only sent to api.anthropic.com. The desktop web session cookie is sent only to claude.ai to verify the account and read its subscription date. The Chinese Windows maintenance fork adds an optional, user-initiated `.cas-account` export; this file is deliberately unencrypted and contains one account's sign-in and cookies. Temporary cookie files are created in the chosen export folder and removed when the operation finishes. The switcher also supports GitHub update checks.
 - Optional auto-switch to the account with the most room left at 96% (or 90, 94, 98)
 - After a switch, asks which Claude Code chats that were mid-reply should continue, and Claude picks them up on the new account
 - Command line: `claude-account-switcher -status` prints every account's usage

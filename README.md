@@ -47,6 +47,8 @@ Three of those four steps are pure overhead, and the fourth is a guess.
 
 **Shows quotas before switching.** On Windows, either mouse button opens the same native custom tray menu, with names, plans and emails on one line. Account rows alternate white and light grey backgrounds; Pro, Max and Ultra use blue, purple and gold plan badges. Reset times follow their quota titles. All accounts stay expanded; reading an identity or quota never switches accounts. The separate Switch button asks before restarting Claude. macOS keeps its existing system menu. Other Claude settings remain unchanged.
 
+**Shows subscription dates for each account.** The tray displays the end of paid access, or the next renewal when Claude supplies it. App Store dates are managed by Apple: in the Windows account menu (…), choose **View or record Apple subscription date**, check the purchasing Apple Account’s subscriptions, then save the renewal or end date as a local manual note. These notes never roll forward automatically. For Claude web subscriptions, the switcher checks every six hours; if a web verification is required, use the account menu to open a separate verification window. Dates are accepted only after the account and organization match. A failed query is distinguished from an absent date and any prior date is marked as last known.
+
 **Brings your chats along.** Before Claude starts, the switcher copies the chat list entries of your other accounts into the one you switch to. Open the chat you were in and keep going. Projects come along too, so chats stay grouped in them. Chats you deleted stay deleted.
 
 **Picks up where Claude stopped.** A switch restarts Claude, and a chat that was working at that moment would just stand still. The switcher notices which chats were in the middle of a reply and asks in a small window which of them should go on. Claude then continues the checked ones on the new account by itself.
@@ -232,7 +234,7 @@ Before each switch, `config.json` and the cookie store are backed up. The last 1
 | --- | --- |
 | Saved sign-ins, state, backups, log | `~/.claude-account-switcher` (`%USERPROFILE%\.claude-account-switcher` on Windows), **Open data folder** in the menu. On Windows, `webview` in there is the WebView2 profile of the window that asks which chats continue |
 | Tokens | Encrypted at rest as Claude stores them and only sent to `api.anthropic.com`, except when you explicitly create a Windows fork `.cas-account` export. That file is unencrypted and contains login credentials; keep it private and delete it after import. |
-| Network | `api.anthropic.com` for profiles and usage. `api.github.com` once a day for the latest version number, off with `"noUpdateCheck": true` in `state.json`. `github.com` only when you click to update |
+| Network | `api.anthropic.com` for profiles and usage. `claude.ai` for web session identity and subscription dates. `api.github.com` once a day for the latest version number, off with `"noUpdateCheck": true` in `state.json`. `github.com` only when you click to update |
 | Remove an account | Quit the switcher, delete its folder under `accounts/` and its entry in `state.json` |
 | Uninstall | Turn off **Start at login**, quit, delete the binary and the data folder |
 

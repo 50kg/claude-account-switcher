@@ -54,8 +54,9 @@ type profile struct {
 		HasPro      bool   `json:"has_claude_pro"`
 	} `json:"account"`
 	Organization struct {
-		UUID string `json:"uuid"`
-		Type string `json:"organization_type"`
+		UUID        string `json:"uuid"`
+		Type        string `json:"organization_type"`
+		BillingType string `json:"billing_type"`
 	} `json:"organization"`
 }
 

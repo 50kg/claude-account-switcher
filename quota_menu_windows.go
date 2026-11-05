@@ -785,13 +785,20 @@ func (w *quotaMenuWindow) choices(kind string) []quotaMenuChoice {
 		}
 	case "account-actions":
 		name := tr("this account", "此账号")
+		billingAction := tr("Verify subscription date on Claude…", "通过网页核验会员日期…")
 		for _, account := range w.view.Accounts {
 			if account.ID == w.overlay.Account {
 				name = account.Name
+				if account.AppleSubscription {
+					billingAction = tr("View or record Apple subscription date…", "查看或记录 Apple 订阅日期…")
+				}
 				break
 			}
 		}
-		return []quotaMenuChoice{{Label: fmt.Sprintf(tr("Export %s (unencrypted)…", "导出 %s（明文）…"), name), Disabled: w.view.Busy, Action: quotaMenuAction{Kind: "account-export", Account: w.overlay.Account}}}
+		return []quotaMenuChoice{
+			{Label: billingAction, Disabled: w.view.Busy, Action: quotaMenuAction{Kind: "billing-web", Account: w.overlay.Account}},
+			{Label: fmt.Sprintf(tr("Export %s (unencrypted)…", "导出 %s（明文）…"), name), Disabled: w.view.Busy, Action: quotaMenuAction{Kind: "account-export", Account: w.overlay.Account}},
+		}
 	case "threshold":
 		var choices []quotaMenuChoice
 		for _, value := range thresholds {

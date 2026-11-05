@@ -29,6 +29,8 @@ type quotaMenuView struct {
 
 type quotaMenuAccount struct {
 	ID, Name, Email, Plan, Problem string
+	Billing                        string
+	AppleSubscription              bool
 	Current, Stale                 bool
 	Quotas                         []quotaMenuReading
 }
@@ -53,7 +55,7 @@ func makeQuotaMenuView(s snapshot, startup bool, now time.Time) quotaMenuView {
 	}
 	for _, a := range s.Accounts {
 		row := quotaMenuAccount{ID: a.UUID, Name: menuSingleLine(a.Name), Email: menuSingleLine(a.Email), Plan: menuSingleLine(a.Plan),
-			Current: a.UUID == s.Active, Problem: usageProblemText(a, now), Stale: !freshModelUsage(a, now)}
+			Current: a.UUID == s.Active, Problem: usageProblemText(a, now), Stale: !freshModelUsage(a, now), Billing: a.billingText(now), AppleSubscription: a.Billing != nil && a.Billing.Provider == "apple"}
 		if row.Name == "" {
 			row.Name = tr("Account", "账号")
 		}
@@ -189,7 +191,7 @@ func validateQuotaMenuAction(a quotaMenuAction, s snapshot) error {
 		if s.Busy || s.Syncing {
 			return reject()
 		}
-	case "account-export":
+	case "account-export", "billing-web":
 		if s.Busy || s.Syncing || a.Account == "" {
 			return reject()
 		}
@@ -272,11 +274,15 @@ const (
 	quotaMenuFooterHeight    = 74
 	quotaMenuMaxBodyHeight   = 560
 	quotaAccountHeaderHeight = 44
+	quotaBillingHeight       = 21
 	quotaReadingHeight       = 34
 )
 
 func quotaAccountHeight(a quotaMenuAccount) int {
 	height := quotaAccountHeaderHeight + 4
+	if a.Billing != "" {
+		height += quotaBillingHeight
+	}
 	if a.Problem != "" || a.Stale {
 		height += 26
 	}
