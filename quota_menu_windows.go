@@ -286,6 +286,7 @@ type quotaMenuWindow struct {
 	menu                                                           *nativeQuotaMenu
 	hwnd                                                           uintptr
 	view                                                           quotaMenuView
+	archivedView                                                   bool
 	dpi, width, height, bodyTop, bodyBottom, contentHeight, scroll int
 	anchor                                                         qmPoint
 	work                                                           quotaRect
@@ -570,6 +571,9 @@ func (w *quotaMenuWindow) input() quotaMenuInput {
 
 func (w *quotaMenuWindow) reload(show bool) {
 	w.view = w.menu.view()
+	if show {
+		w.archivedView = false
+	}
 	if preferences, err := loadQuotaMenuPreferences(w.menu.preferencesPath); err == nil {
 		w.view.SortMode = preferences.SortMode
 		if w.view.SortMode == "" {
@@ -610,10 +614,10 @@ func (w *quotaMenuWindow) reload(show bool) {
 	}
 	w.work = quotaRect{int(info.Work.Left), int(info.Work.Top), int(info.Work.Right - info.Work.Left), int(info.Work.Bottom - info.Work.Top)}
 	w.contentHeight = 0
-	for _, a := range w.view.Accounts {
+	for _, a := range w.visibleAccounts() {
 		w.contentHeight += quotaAccountHeight(a)
 	}
-	if len(w.view.Accounts) == 0 {
+	if len(w.visibleAccounts()) == 0 {
 		w.contentHeight = 92
 	}
 	w.bodyTop = quotaMenuHeaderHeight
@@ -650,6 +654,13 @@ func (w *quotaMenuWindow) reload(show bool) {
 	// Synchronous first paint: no HTML, animation frame or child process can
 	// keep a successfully created menu hidden.
 	qmUpdateWindow.Call(w.hwnd)
+}
+
+func (w *quotaMenuWindow) visibleAccounts() []quotaMenuAccount {
+	if w.archivedView {
+		return w.view.ArchivedAccounts
+	}
+	return w.view.Accounts
 }
 
 func (w *quotaMenuWindow) hide() {
@@ -724,21 +735,33 @@ func (w *quotaMenuWindow) activate(hit quotaMenuHit) {
 		return
 	}
 	a := hit.Action
+	if a.Kind == "archived-view" {
+		w.archivedView = true
+		w.closeOverlay()
+		w.reload(false)
+		return
+	}
+	if a.Kind == "accounts-view" {
+		w.archivedView = false
+		w.closeOverlay()
+		w.reload(false)
+		return
+	}
 	if w.activateInterval(a) {
 		return
 	}
 	if a.Kind == "" {
 		return
 	}
-	if (a.Kind == "switch" || a.Kind == "add" || a.Kind == "import") && !a.Confirmed {
-		// Keep the original active identity until the user confirms. The
+	if (a.Kind == "switch" || a.Kind == "add" || a.Kind == "import" || a.Kind == "session-start") && !a.Confirmed {
+		// Preserve the selected action until the user confirms. The
 		// dispatcher revalidates it against the latest snapshot before acting.
 		w.overlay = &quotaMenuOverlay{Kind: "confirm", Confirm: a}
 		w.focus, w.hover, w.pressed = 0, -1, -1 // Cancel is the default.
 		w.invalidate()
 		return
 	}
-	keepOpen := a.Kind == "auto" || a.Kind == "spend" || a.Kind == "threshold" || a.Kind == "autostart" || a.Kind == "sync" || a.Kind == "sort"
+	keepOpen := a.Kind == "auto" || a.Kind == "spend" || a.Kind == "threshold" || a.Kind == "autostart" || a.Kind == "sync" || a.Kind == "sort" || a.Kind == "session-start"
 	w.closeOverlay()
 	if !keepOpen {
 		w.hide()
@@ -771,8 +794,9 @@ func (w *quotaMenuWindow) choices(kind string) []quotaMenuChoice {
 		}
 		choices = append(choices,
 			quotaMenuChoice{Separator: true},
+			quotaMenuChoice{Label: fmt.Sprintf(tr("Archived accounts (%d)", "已归档账号（%d）"), len(w.view.ArchivedAccounts)), Disabled: len(w.view.ArchivedAccounts) == 0, Action: quotaMenuAction{Kind: "archived-view"}},
 			quotaMenuChoice{Label: tr("Import one account…", "导入单个账号…"), Disabled: w.view.Busy, Action: quotaMenuAction{Kind: "account-import"}},
-			quotaMenuChoice{Label: syncLabel, Disabled: w.view.Busy || len(w.view.Accounts) == 0, Action: quotaMenuAction{Kind: "sync"}},
+			quotaMenuChoice{Label: syncLabel, Disabled: w.view.Busy || len(w.view.Accounts)+len(w.view.ArchivedAccounts) == 0, Action: quotaMenuAction{Kind: "sync"}},
 			quotaMenuChoice{Label: tr("Import chats from all accounts…", "导入所有账号的聊天…"), Disabled: w.view.Busy, Action: quotaMenuAction{Kind: "import", Active: w.view.Active}},
 			quotaMenuChoice{Label: tr("Open data folder", "打开数据文件夹"), Action: quotaMenuAction{Kind: "folder"}},
 			quotaMenuChoice{Label: title, Action: quotaMenuAction{Kind: "update"}},
@@ -786,19 +810,31 @@ func (w *quotaMenuWindow) choices(kind string) []quotaMenuChoice {
 	case "account-actions":
 		name := tr("this account", "此账号")
 		billingAction := tr("Verify subscription date on Claude…", "通过网页核验会员日期…")
-		for _, account := range w.view.Accounts {
-			if account.ID == w.overlay.Account {
-				name = account.Name
-				if account.AppleSubscription {
-					billingAction = tr("View or record Apple subscription date…", "查看或记录 Apple 订阅日期…")
+		archived := false
+		for _, accounts := range [][]quotaMenuAccount{w.view.Accounts, w.view.ArchivedAccounts} {
+			for _, account := range accounts {
+				if account.ID == w.overlay.Account {
+					name, archived = account.Name, account.Archived
+					if account.AppleSubscription {
+						billingAction = tr("View or record Apple subscription date…", "查看或记录 Apple 订阅日期…")
+					}
+					break
 				}
-				break
 			}
 		}
-		return []quotaMenuChoice{
+		choices := []quotaMenuChoice{
+			{Label: tr("Start 5-hour window…", "启动 5 小时窗口…"), Disabled: w.view.Busy, Action: quotaMenuAction{Kind: "session-start", Account: w.overlay.Account}},
+			{Label: tr("Sign in to Claude Code for this account…", "为此账号登录 Claude Code…"), Disabled: w.view.Busy, Action: quotaMenuAction{Kind: "session-login", Account: w.overlay.Account}},
+			{Separator: true},
 			{Label: billingAction, Disabled: w.view.Busy, Action: quotaMenuAction{Kind: "billing-web", Account: w.overlay.Account}},
 			{Label: fmt.Sprintf(tr("Export %s (unencrypted)…", "导出 %s（明文）…"), name), Disabled: w.view.Busy, Action: quotaMenuAction{Kind: "account-export", Account: w.overlay.Account}},
 		}
+		if archived {
+			choices = append(choices, quotaMenuChoice{Label: tr("Restore to account list", "恢复到账号列表"), Disabled: w.view.Busy, Action: quotaMenuAction{Kind: "unarchive", Account: w.overlay.Account}})
+		} else {
+			choices = append(choices, quotaMenuChoice{Label: tr("Archive account", "归档账号"), Disabled: w.view.Busy, Action: quotaMenuAction{Kind: "archive", Account: w.overlay.Account}})
+		}
+		return choices
 	case "threshold":
 		var choices []quotaMenuChoice
 		for _, value := range thresholds {

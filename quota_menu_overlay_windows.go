@@ -66,9 +66,11 @@ func (p *qmPainter) overlay() {
 
 func (p *qmPainter) confirmation(o *quotaMenuOverlay) {
 	w := p.w
+	startSession := o.Confirm.Kind == "session-start"
+	showAccount := o.Confirm.Kind == "switch" || startSession
 	width := min(440, w.width-24)
 	height := 184
-	if o.Confirm.Kind == "switch" {
+	if showAccount {
 		height += 44
 	}
 	x, y := (w.width-width)/2, max(8, (w.height-height)/2)
@@ -80,20 +82,33 @@ func (p *qmPainter) confirmation(o *quotaMenuOverlay) {
 		title = tr("Add an account?", "添加账号？")
 	} else if o.Confirm.Kind == "import" {
 		title = tr("Import chats from all accounts?", "导入所有账号的聊天？")
+	} else if startSession {
+		title = tr("Start this account's 5-hour window?", "启动此账号的 5 小时窗口？")
 	}
 	p.text(title, quotaRect{x + 18, y + 12, width - 36, 30}, 2, qmInk, false)
 	textY := y + 48
-	if o.Confirm.Kind == "switch" {
-		for _, a := range w.view.Accounts {
-			if a.ID == o.Confirm.Account {
-				p.text(a.Name+"  "+a.Plan, quotaRect{x + 18, textY, width - 36, 23}, 0, qmInk, false)
-				p.text(a.Email, quotaRect{x + 18, textY + 22, width - 36, 23}, 1, qmMuted, false)
-				break
+	if showAccount {
+		for _, accounts := range [][]quotaMenuAccount{w.view.Accounts, w.view.ArchivedAccounts} {
+			for _, a := range accounts {
+				if a.ID == o.Confirm.Account {
+					p.text(a.Name+"  "+a.Plan, quotaRect{x + 18, textY, width - 36, 23}, 0, qmInk, false)
+					p.text(a.Email, quotaRect{x + 18, textY + 22, width - 36, 23}, 1, qmMuted, false)
+					break
+				}
 			}
 		}
 		textY += 48
 	}
-	p.text(tr("Claude will close and restart.", "此操作会关闭并重新启动 Claude。"), quotaRect{x + 18, textY, width - 36, 24}, 0, qmInk, false)
+	detail := tr("Claude will close and restart.", "此操作会关闭并重新启动 Claude。")
+	acceptLabel := tr("Restart Claude", "确认并重启")
+	if startSession {
+		detail = tr("Send one short message using this account's quota.", "将用此账号的额度发送一条短消息。")
+		acceptLabel = tr("Send message", "发送消息")
+	}
+	p.text(detail, quotaRect{x + 18, textY, width - 36, 24}, 0, qmInk, false)
+	if startSession {
+		p.text(tr("The current Claude Desktop account stays signed in.", "当前 Claude 桌面账号可以继续使用。"), quotaRect{x + 18, textY + 25, width - 36, 24}, 1, qmMuted, false)
+	}
 	if o.Confirm.Kind == "add" {
 		p.text(tr("Import chats manually from Settings after signing in.", "添加成功后，请从“设置”手动导入聊天。"), quotaRect{x + 18, textY + 25, width - 36, 24}, 1, qmMuted, false)
 	}
@@ -111,5 +126,5 @@ func (p *qmPainter) confirmation(o *quotaMenuOverlay) {
 		w.addHit(quotaMenuHit{Rect: accept, Action: a}, false)
 	}
 	p.round(accept, 4, color, color)
-	p.centeredText(tr("Restart Claude", "确认并重启"), accept, 0, qmWhite)
+	p.centeredText(acceptLabel, accept, 0, qmWhite)
 }

@@ -31,6 +31,10 @@ func (s *switcher) beginUsageSync() bool {
 	if !s.usageSyncing.CompareAndSwap(false, true) {
 		return false
 	}
+	if s.busy.Load() {
+		s.usageSyncing.Store(false)
+		return false
+	}
 	s.mu.Lock()
 	if isUsageSyncStatus(s.status) {
 		s.status = ""
@@ -50,14 +54,16 @@ func (s *switcher) endUsageSync() {
 }
 
 func (s *switcher) syncUsageNow(ctx context.Context) error {
-	return s.syncUsageNowWith(ctx, func(ctx context.Context, uuid, active string) (*Usage, error) {
-		credentials, err := s.credentialsFor(uuid, active)
-		if err != nil {
-			return nil, err
-		}
-		_, u, err := s.queryUsageCandidates(ctx, uuid, credentials, false)
-		return u, err
-	})
+	return s.syncUsageNowWith(ctx, s.queryAccountUsage)
+}
+
+func (s *switcher) queryAccountUsage(ctx context.Context, uuid, active string) (*Usage, error) {
+	credentials, err := s.credentialsFor(uuid, active)
+	if err != nil {
+		return nil, err
+	}
+	_, u, err := s.queryUsageCandidates(ctx, uuid, credentials, false)
+	return u, err
 }
 
 // Manual sync only queries known accounts. It does not inspect chat files,

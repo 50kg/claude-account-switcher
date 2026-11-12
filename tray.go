@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"fyne.io/systray"
@@ -17,20 +18,33 @@ const maxAccounts = 8
 var thresholds = []float64{90, 94, 96, 98}
 
 type tray struct {
-	s           *switcher
-	status      *systray.MenuItem
-	modelNotice *systray.MenuItem
-	update      *systray.MenuItem
-	accounts    [maxAccounts]*systray.MenuItem
-	auto        *systray.MenuItem
-	spend       *systray.MenuItem
-	thresholds  []*systray.MenuItem
-	add         *systray.MenuItem
-	importNow   *systray.MenuItem
-	autostart   *systray.MenuItem
-	lastIcon    string
-	updates     chan struct{}
-	menu        quotaMenu
+	s             *switcher
+	status        *systray.MenuItem
+	modelNotice   *systray.MenuItem
+	update        *systray.MenuItem
+	accounts      [maxAccounts]*systray.MenuItem
+	accountIDsMu  sync.RWMutex
+	accountIDs    [maxAccounts]string
+	archiveMenu   *systray.MenuItem
+	archivedMenu  *systray.MenuItem
+	restoreMenu   *systray.MenuItem
+	archiveItems  []systemAccountMenuEntry
+	archivedItems []systemAccountMenuEntry
+	restoreItems  []systemAccountMenuEntry
+	auto          *systray.MenuItem
+	spend         *systray.MenuItem
+	thresholds    []*systray.MenuItem
+	add           *systray.MenuItem
+	importNow     *systray.MenuItem
+	autostart     *systray.MenuItem
+	lastIcon      string
+	updates       chan struct{}
+	menu          quotaMenu
+}
+
+type systemAccountMenuEntry struct {
+	ID   string
+	Item *systray.MenuItem
 }
 
 func (t *tray) onReady() {
@@ -86,6 +100,12 @@ func (t *tray) createSystemMenu() {
 		t.accounts[i] = systray.AddMenuItemCheckbox("", tr("Switch the Claude app to this account", "将 Claude 切换到此账号"), false)
 		t.accounts[i].Hide()
 	}
+	t.archiveMenu = systray.AddMenuItem(tr("Archive an account…", "归档账号…"), "")
+	t.archivedMenu = systray.AddMenuItem(tr("Archived accounts", "已归档账号"), "")
+	t.restoreMenu = systray.AddMenuItem(tr("Restore an archived account…", "恢复已归档账号…"), "")
+	t.archiveMenu.Hide()
+	t.archivedMenu.Hide()
+	t.restoreMenu.Hide()
 	systray.AddSeparator()
 	t.auto = systray.AddMenuItemCheckbox(tr("Auto-switch when nearly full", "额度接近用尽时自动切换"), tr("Switch to the account with the most room left", "自动切换到剩余额度最多的账号"), false)
 	limit := systray.AddMenuItem(tr("Auto-switch at", "自动切换阈值"), "")
@@ -104,8 +124,11 @@ func (t *tray) createSystemMenu() {
 		go func() {
 			for range item.ClickedCh {
 				snap := t.s.snapshot()
-				if i < len(snap.Accounts) && snap.Accounts[i].UUID != snap.Active {
-					go t.s.run(tr("Switch", "切换账号"), func() error { return t.s.switchTo(snap.Accounts[i].UUID, byHand) })
+				t.accountIDsMu.RLock()
+				id := t.accountIDs[i]
+				t.accountIDsMu.RUnlock()
+				if id != "" && id != snap.Active {
+					go t.s.run(tr("Switch", "切换账号"), func() error { return t.s.switchTo(id, byHand) })
 				}
 				t.s.onChange()
 			}
@@ -211,20 +234,26 @@ func (t *tray) render() {
 	} else {
 		t.update.Hide()
 	}
-	if len(snap.Accounts) == 0 && snap.Status == "" {
-		t.status.SetTitle(tr("Open Claude and sign in", "请打开 Claude 并登录账号"))
+	accounts := unarchivedAccounts(snap.Accounts)
+	if len(accounts) == 0 && snap.Status == "" {
+		message := tr("Open Claude and sign in", "请打开 Claude 并登录账号")
+		if len(snap.Accounts) > 0 {
+			message = tr("All accounts are archived", "所有账号均已归档")
+		}
+		t.status.SetTitle(message)
 		t.status.Show()
 	}
+	t.updateAccountArchiveMenus(snap)
 
 	activePct := -1.0
 	modelNotice := ""
 	tip := tr("Claude Account Switcher", "Claude 账号切换器")
 	for i, item := range t.accounts {
-		if i >= len(snap.Accounts) {
+		if i >= len(accounts) {
 			item.Hide()
 			continue
 		}
-		a := snap.Accounts[i]
+		a := accounts[i]
 		detail := compactRemainingText(a, now)
 		item.SetTitle(a.label() + menuTab + detail + " · " + a.billingText(now))
 		setChecked(item, a.UUID == snap.Active)
@@ -242,6 +271,13 @@ func (t *tray) render() {
 			}
 		}
 	}
+	var ids [maxAccounts]string
+	for i := 0; i < len(accounts) && i < len(ids); i++ {
+		ids[i] = accounts[i].UUID
+	}
+	t.accountIDsMu.Lock()
+	t.accountIDs = ids
+	t.accountIDsMu.Unlock()
 	if modelNotice == "" {
 		t.modelNotice.Hide()
 	} else {
@@ -266,6 +302,103 @@ func (t *tray) render() {
 	if t.menu != nil {
 		t.menu.update()
 	}
+}
+
+func unarchivedAccounts(accounts []Account) []Account {
+	visible := make([]Account, 0, len(accounts))
+	for _, account := range accounts {
+		if !account.Archived {
+			visible = append(visible, account)
+		}
+	}
+	return visible
+}
+
+func archivedAccounts(accounts []Account) []Account {
+	archived := make([]Account, 0, len(accounts))
+	for _, account := range accounts {
+		if account.Archived {
+			archived = append(archived, account)
+		}
+	}
+	return archived
+}
+
+func (t *tray) updateAccountArchiveMenus(snap snapshot) {
+	busy := snap.Busy || snap.Syncing
+	active := unarchivedAccounts(snap.Accounts)
+	archived := archivedAccounts(snap.Accounts)
+	t.archiveItems = syncSystemAccountMenu(t.archiveMenu, t.archiveItems, active,
+		func(a Account) string { return tr("Archive ", "归档 ") + a.label() },
+		func(id string) {
+			go func() {
+				if err := t.s.setAccountArchived(id, true); err != nil {
+					t.s.setStatus(err.Error())
+				}
+			}()
+		}, busy)
+	t.archivedItems = syncSystemAccountMenu(t.archivedMenu, t.archivedItems, archived,
+		func(a Account) string { return tr("Switch to ", "切换到 ") + a.label() },
+		func(id string) {
+			if id != t.s.snapshot().Active {
+				go t.s.run(tr("Switch", "切换账号"), func() error { return t.s.switchTo(id, byHand) })
+			}
+		}, busy)
+	t.restoreItems = syncSystemAccountMenu(t.restoreMenu, t.restoreItems, archived,
+		func(a Account) string { return tr("Restore ", "恢复 ") + a.label() },
+		func(id string) {
+			go func() {
+				if err := t.s.setAccountArchived(id, false); err != nil {
+					t.s.setStatus(err.Error())
+				}
+			}()
+		}, busy)
+}
+
+func syncSystemAccountMenu(root *systray.MenuItem, entries []systemAccountMenuEntry, accounts []Account,
+	label func(Account) string, action func(string), busy bool) []systemAccountMenuEntry {
+	same := len(entries) == len(accounts)
+	if same {
+		for i, account := range accounts {
+			if entries[i].ID != account.UUID {
+				same = false
+				break
+			}
+		}
+	}
+	if !same {
+		for _, entry := range entries {
+			entry.Item.Remove()
+		}
+		entries = make([]systemAccountMenuEntry, 0, len(accounts))
+		for _, account := range accounts {
+			id := account.UUID
+			item := root.AddSubMenuItem(label(account), "")
+			entries = append(entries, systemAccountMenuEntry{ID: id, Item: item})
+			go func(item *systray.MenuItem, id string) {
+				for range item.ClickedCh {
+					action(id)
+				}
+			}(item, id)
+		}
+	} else {
+		for i, account := range accounts {
+			entries[i].Item.SetTitle(label(account))
+		}
+	}
+	if len(accounts) == 0 {
+		root.Hide()
+	} else {
+		root.Show()
+	}
+	for _, entry := range entries {
+		if busy {
+			entry.Item.Disable()
+		} else {
+			entry.Item.Enable()
+		}
+	}
+	return entries
 }
 
 func (t *tray) handleQuotaMenuAction(action quotaMenuAction) error {
@@ -293,8 +426,14 @@ func (t *tray) handleQuotaMenuAction(action quotaMenuAction) error {
 		return saveQuotaMenuAccountOrder(filepath.Join(t.s.dir, "ui.json"), action.AccountOrder)
 	case "account-export":
 		return handleAccountExport(t.s, action.Account)
+	case "archive":
+		return t.s.setAccountArchived(action.Account, true)
+	case "unarchive":
+		return t.s.setAccountArchived(action.Account, false)
 	case "billing-web":
 		return verifyBillingWeb(t.s, action.Account)
+	case "session-login", "session-start":
+		return handleSessionWindowAction(t.s, action.Account, action.Kind == "session-login")
 	case "account-import":
 		return handleAccountImport(t.s)
 	case "sync":

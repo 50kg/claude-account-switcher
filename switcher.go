@@ -21,6 +21,7 @@ type Account struct {
 	Name      string       `json:"name"`
 	Email     string       `json:"email"`
 	Plan      string       `json:"plan"`
+	Archived  bool         `json:"archived,omitempty"`
 	Usage     *Usage       `json:"usage,omitempty"`
 	Billing   *billingInfo `json:"billing,omitempty"`
 	AppleDate *billingNote `json:"appleDate,omitempty"`
@@ -343,7 +344,7 @@ func (s *switcher) autoTarget(running bool, lastChat, now time.Time) (*Account, 
 // usable says whether an auto switch may go to a: fresh numbers and room
 // well below the threshold. Callers hold s.mu.
 func (s *switcher) usable(a, cur *Account, now time.Time) bool {
-	return a != cur && a.Usage != nil && a.Problem == "" && now.Sub(a.Usage.CheckedAt) <= idleFresh &&
+	return a != cur && !a.Archived && a.Usage != nil && a.Problem == "" && now.Sub(a.Usage.CheckedAt) <= idleFresh &&
 		a.Usage.current(now).peak() < s.st.Threshold-autoHeadroom
 }
 
@@ -472,16 +473,40 @@ func (s *switcher) switchTo(uuid string, cause switchCause) error {
 		if active == uuid {
 			return nil
 		}
+		d := s.app()
+		s.mu.Lock()
+		source := s.account(active)
+		s.mu.Unlock()
+		var changes []sidebarChange
+		if source != nil && source.Org != "" && target.Org != "" {
+			var err error
+			changes, err = planSidebarSync(
+				filepath.Join(d.sessionsDir(), source.UUID, source.Org),
+				filepath.Join(d.sessionsDir(), target.UUID, target.Org),
+			)
+			if err != nil {
+				log.Printf("sidebar sync skipped: %v", err)
+			}
+		} else {
+			log.Print("sidebar sync skipped: source or target organization is unknown")
+		}
 		if err := s.saveActive(active); err != nil {
 			return fmt.Errorf(tr("save current sign-in: %w", "保存当前登录状态失败：%w"), err)
 		}
-		if err := restoreProfile(s.app(), s.profileDir(uuid)); err != nil {
-			return fmt.Errorf(tr("restore sign-in: %w", "恢复登录状态失败：%w"), err)
+		// Keep the outgoing sign-in in place until the target list is ready,
+		// so an interrupted switch can be retried from the same source.
+		if err := applySidebarChanges(changes); err != nil {
+			return fmt.Errorf(tr("sync chat sidebar: %w", "同步聊天侧栏失败：%w"), err)
 		}
-		n, err := syncSessions(s.app().sessionsDir(), target.UUID, target.Org)
-		log.Printf("switched to %s, %d chats imported", target.label(), n)
+		if err := restoreProfile(d, s.profileDir(uuid)); err != nil {
+			return errors.Join(
+				fmt.Errorf(tr("restore sign-in: %w", "恢复登录状态失败：%w"), err),
+				restoreSidebarChanges(changes),
+			)
+		}
+		log.Printf("switched to %s, %d sidebar files updated", target.label(), len(changes))
 		s.importProjects(target)
-		return err
+		return nil
 	})
 	if err == nil {
 		s.mu.Lock()
@@ -571,6 +596,29 @@ func (s *switcher) setThreshold(t float64) {
 	s.saveState()
 	s.mu.Unlock()
 	s.onChange()
+}
+
+// setAccountArchived changes only the account's manual archive flag. Archived
+// accounts remain saved and can still be selected or used by other features.
+func (s *switcher) setAccountArchived(uuid string, archived bool) error {
+	if s.busy.Load() || s.usageSyncing.Load() {
+		return errors.New(tr("Wait for the current operation to finish", "请等待当前操作完成"))
+	}
+	s.mu.Lock()
+	a := s.account(uuid)
+	if a == nil {
+		s.mu.Unlock()
+		return errors.New(tr("unknown account", "未找到该账号"))
+	}
+	if a.Archived == archived {
+		s.mu.Unlock()
+		return nil
+	}
+	a.Archived = archived
+	s.saveState()
+	s.mu.Unlock()
+	s.onChange()
+	return nil
 }
 
 // snapshot is a copy of what the menu shows.

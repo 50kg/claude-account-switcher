@@ -313,6 +313,16 @@ func TestNativeQuotaMenuChild(t *testing.T) {
 			t.Error("identity opened an account action")
 		}
 	})
+	nativeMenuClickHit(t, m, func(h quotaMenuHit) bool { return h.Popup == "account-actions" && h.Action.Account == "synthetic-alex" })
+	nativeMenuClickHit(t, m, func(h quotaMenuHit) bool { return h.Action.Kind == "session-start" })
+	nativeMenuWait(t, m, func(w *quotaMenuWindow) bool { return w.overlay != nil && w.overlay.Confirm.Kind == "session-start" })
+	if len(f.actions) != 0 {
+		t.Fatal("start window dispatched before confirmation")
+	}
+	nativeMenuClickHit(t, m, func(h quotaMenuHit) bool { return h.Action.Kind == "session-start" && h.Action.Confirmed })
+	if a := f.expectAction(t, "session-start"); a.Account != "synthetic-alex" || !a.Confirmed {
+		t.Fatalf("wrong session action: %+v", a)
+	}
 	// The real custom confirmation, including the safe keyboard default.
 	nativeMenuClickHit(t, m, func(h quotaMenuHit) bool { return h.Action.Kind == "switch" && h.Action.Account == "synthetic-alex" })
 	nativeMenuWait(t, m, func(w *quotaMenuWindow) bool { return w.overlay != nil && w.overlay.Kind == "confirm" })

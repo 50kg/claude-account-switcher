@@ -211,14 +211,21 @@ func (w *quotaMenuWindow) draw(dc uintptr) {
 	w.addFixedTooltip(quotaRect{1, 0, w.width - 2, 7}, resizeHint)
 	w.addFixedTooltip(quotaRect{1, w.height - 6, w.width - 2, 6}, resizeHint)
 	sortLabel := tr("Account order ▾", "账号排序 ▾")
+	if w.archivedView {
+		sortLabel = tr("← Accounts", "← 账号列表")
+	}
 	sortWidth := p.measure(sortLabel, 1) + 20
 	sortRect := quotaRect{w.width - 20 - sortWidth, 10, sortWidth, 27}
 	title := tr("Claude Account Switcher", "Claude 账号切换器")
+	if w.archivedView {
+		title = tr("Archived accounts", "已归档账号")
+	}
 	titleWidth := min(p.measure(title, 2), max(0, sortRect.X-20-145))
 	p.text(title, quotaRect{20, 8, titleWidth, 30}, 2, qmInk, false)
 	updated := tr("Waiting for usage", "等待用量更新")
+	shownAccounts := w.visibleAccounts()
 	if !w.view.Updated.IsZero() {
-		updated = fmt.Sprintf(tr("%d accounts · %s", "%d个账号 · %s 更新"), len(w.view.Accounts), w.view.Updated.Local().Format("15:04"))
+		updated = fmt.Sprintf(tr("%d accounts · %s", "%d个账号 · %s 更新"), len(shownAccounts), w.view.Updated.Local().Format("15:04"))
 	}
 	if w.view.Syncing {
 		updated = tr("Syncing usage…", "正在同步用量…")
@@ -226,7 +233,10 @@ func (w *quotaMenuWindow) draw(dc uintptr) {
 	updatedX := 20 + titleWidth + 12
 	p.text(updated, quotaRect{updatedX, 9, max(0, sortRect.X-updatedX-12), 27}, 1, qmMuted, true)
 	sortColor := uint32(qmInk)
-	if len(w.view.Accounts) < 2 || w.orderSaving {
+	if w.archivedView {
+		sortColor = qmBlue
+		w.addHit(quotaMenuHit{Rect: sortRect, Action: quotaMenuAction{Kind: "accounts-view"}}, false)
+	} else if len(w.view.Accounts) < 2 || w.orderSaving {
 		sortColor = qmMuted
 	} else {
 		w.addHit(quotaMenuHit{Rect: sortRect, Popup: "sort"}, false)
@@ -242,10 +252,16 @@ func (w *quotaMenuWindow) draw(dc uintptr) {
 	saved, _, _ := qmSaveDC.Call(dc)
 	qmIntersectClip.Call(dc, 0, uintptr(w.scale(w.bodyTop)), uintptr(w.scale(w.width)), uintptr(w.scale(w.bodyBottom)))
 	y := w.bodyTop - w.scroll
-	if len(w.view.Accounts) == 0 {
-		p.text(tr("Open Claude and sign in to add an account", "请先在Claude中登录账号"), quotaRect{20, y + 25, w.width - 40, 30}, 0, qmMuted, false)
+	if len(shownAccounts) == 0 {
+		message := tr("Open Claude and sign in to add an account", "请先在Claude中登录账号")
+		if w.archivedView {
+			message = tr("No archived accounts", "没有已归档账号")
+		} else if len(w.view.ArchivedAccounts) > 0 {
+			message = tr("All accounts are archived. Find them in Settings.", "所有账号均已归档，可在“设置”中查看。")
+		}
+		p.text(message, quotaRect{20, y + 25, w.width - 40, 30}, 0, qmMuted, false)
 	}
-	for index, a := range w.view.Accounts {
+	for index, a := range shownAccounts {
 		height := quotaAccountHeight(a)
 		if y+height > w.bodyTop && y < w.bodyBottom {
 			p.account(a, index, y, height)
@@ -305,7 +321,7 @@ func (p *qmPainter) account(a quotaMenuAccount, index, y, height int) {
 	}
 	buttonRect := quotaRect{w.width - 20 - buttonW, y + 9, buttonW, 27}
 	actionsRect := quotaRect{buttonRect.X - 36, buttonRect.Y, 28, buttonRect.H}
-	if w.view.SortMode != "reset" {
+	if !w.archivedView && w.view.SortMode != "reset" {
 		for _, dy := range []int{18, 22, 26} {
 			for _, dx := range []int{8, 13} {
 				p.round(quotaRect{dx, y + dy, 2, 2}, 2, 0x98a3b2, 0x98a3b2)

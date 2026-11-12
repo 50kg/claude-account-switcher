@@ -88,7 +88,7 @@ func syncSessions(root, account, org string) (int, error) {
 	}
 	written := 0
 	for _, s := range sources {
-		if deleted[s.localID()] || deletedCLI[s.cli] {
+		if deleted[s.localID()] || deleted[s.cli] || deletedCLI[s.cli] {
 			continue
 		}
 		if protectedTargets[s.name] {
@@ -127,6 +127,10 @@ func readSessionIndex(path string) (sessionIndex, error) {
 	if err != nil {
 		return sessionIndex{}, err
 	}
+	return parseSessionIndex(path, data)
+}
+
+func parseSessionIndex(path string, data []byte) (sessionIndex, error) {
 	var entry *struct {
 		CLISessionID   string `json:"cliSessionId"`
 		LastActivityAt int64  `json:"lastActivityAt"`
@@ -195,7 +199,8 @@ func takeCutChats(root, account, org string, since time.Time, running map[string
 		if cli == "" {
 			continue
 		}
-		if samePath(filepath.Dir(p), target) {
+		archived, _ := o.get("isArchived")
+		if samePath(filepath.Dir(p), target) && string(archived) != "true" {
 			inTarget[cli] = entry{p, o}
 		}
 		var at int64

@@ -18,6 +18,7 @@ type quotaMenu interface {
 
 type quotaMenuView struct {
 	Accounts                   []quotaMenuAccount
+	ArchivedAccounts           []quotaMenuAccount
 	Active, Status, Update     string
 	SortMode                   string
 	Busy, Auto, Spend, Startup bool
@@ -31,7 +32,7 @@ type quotaMenuAccount struct {
 	ID, Name, Email, Plan, Problem string
 	Billing                        string
 	AppleSubscription              bool
-	Current, Stale                 bool
+	Current, Stale, Archived       bool
 	Quotas                         []quotaMenuReading
 }
 
@@ -55,7 +56,7 @@ func makeQuotaMenuView(s snapshot, startup bool, now time.Time) quotaMenuView {
 	}
 	for _, a := range s.Accounts {
 		row := quotaMenuAccount{ID: a.UUID, Name: menuSingleLine(a.Name), Email: menuSingleLine(a.Email), Plan: menuSingleLine(a.Plan),
-			Current: a.UUID == s.Active, Problem: usageProblemText(a, now), Stale: !freshModelUsage(a, now), Billing: a.billingText(now), AppleSubscription: a.Billing != nil && a.Billing.Provider == "apple"}
+			Current: a.UUID == s.Active, Archived: a.Archived, Problem: usageProblemText(a, now), Stale: !freshModelUsage(a, now), Billing: a.billingText(now), AppleSubscription: a.Billing != nil && a.Billing.Provider == "apple"}
 		if row.Name == "" {
 			row.Name = tr("Account", "账号")
 		}
@@ -94,9 +95,14 @@ func makeQuotaMenuView(s snapshot, startup bool, now time.Time) quotaMenuView {
 				add(fmt.Sprintf(tr("%s week", "%s 周额度"), model.Name), &model.Percent, model.ResetsAt)
 			}
 		}
-		v.Accounts = append(v.Accounts, row)
+		if a.Archived {
+			v.ArchivedAccounts = append(v.ArchivedAccounts, row)
+		} else {
+			v.Accounts = append(v.Accounts, row)
+		}
 	}
 	sort.SliceStable(v.Accounts, func(i, j int) bool { return v.Accounts[i].Current && !v.Accounts[j].Current })
+	sort.SliceStable(v.ArchivedAccounts, func(i, j int) bool { return v.ArchivedAccounts[i].Current && !v.ArchivedAccounts[j].Current })
 	return v
 }
 
@@ -191,8 +197,24 @@ func validateQuotaMenuAction(a quotaMenuAction, s snapshot) error {
 		if s.Busy || s.Syncing {
 			return reject()
 		}
-	case "account-export", "billing-web":
+	case "archive", "unarchive":
 		if s.Busy || s.Syncing || a.Account == "" {
+			return reject()
+		}
+		for _, account := range s.Accounts {
+			if account.UUID == a.Account {
+				if a.Kind == "archive" && account.Archived || a.Kind == "unarchive" && !account.Archived {
+					return reject()
+				}
+				return nil
+			}
+		}
+		return reject()
+	case "account-export", "billing-web", "session-login", "session-start":
+		if s.Busy || s.Syncing || a.Account == "" {
+			return reject()
+		}
+		if a.Kind == "session-start" && !a.Confirmed {
 			return reject()
 		}
 		for _, account := range s.Accounts {

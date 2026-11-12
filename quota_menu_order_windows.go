@@ -1,7 +1,7 @@
 package main
 
 func (w *quotaMenuWindow) accountDragHandleAt(x, y int) int {
-	if w.overlay != nil || w.orderSaving || w.view.SortMode == "reset" || len(w.view.Accounts) < 2 || x < 6 || x >= 19 || y < w.bodyTop || y >= w.bodyBottom {
+	if w.archivedView || w.overlay != nil || w.orderSaving || w.view.SortMode == "reset" || len(w.view.Accounts) < 2 || x < 6 || x >= 19 || y < w.bodyTop || y >= w.bodyBottom {
 		return -1
 	}
 	rowY := w.bodyTop - w.scroll

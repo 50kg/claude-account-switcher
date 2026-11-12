@@ -49,7 +49,9 @@ Three of those four steps are pure overhead, and the fourth is a guess.
 
 **Shows subscription dates for each account.** The tray displays the end of paid access, or the next renewal when Claude supplies it. App Store dates are managed by Apple: in the Windows account menu (…), choose **View or record Apple subscription date**, check the purchasing Apple Account’s subscriptions, then save the renewal or end date as a local manual note. These notes never roll forward automatically. For Claude web subscriptions, the switcher checks every six hours; if a web verification is required, use the account menu to open a separate verification window. Dates are accepted only after the account and organization match. A failed query is distinguished from an absent date and any prior date is marked as last known.
 
-**Brings your chats along.** Before Claude starts, the switcher copies the chat list entries of your other accounts into the one you switch to. Open the chat you were in and keep going. Projects come along too, so chats stay grouped in them. Chats you deleted stay deleted.
+**Brings your current chat list along.** Before Claude starts, the switcher uses the account you just left as the source for the local Claude Code sidebar. It adds missing chats, restores matching archived chats, and archives extra entries in the target account. Projects come along too, so chats stay grouped in them.
+
+**Starts a 5-hour window without switching.** Install the latest [native Claude Code for Windows](https://code.claude.com/docs/en/setup). From the target account’s menu (…), choose **Sign in to Claude Code for this account** once and complete the official sign-in. Then choose **Start 5-hour window** and confirm. The switcher verifies the account and organization, sends one short Haiku prompt and updates usage for that account. If a window is already active, it displays the reset time. You can keep using the current Claude Desktop account.
 
 **Picks up where Claude stopped.** A switch restarts Claude, and a chat that was working at that moment would just stand still. The switcher notices which chats were in the middle of a reply and asks in a small window which of them should go on. Claude then continues the checked ones on the new account by itself.
 
@@ -101,7 +103,7 @@ Every download has a `.sha256` file next to it, so you can check it is the file 
 
 1. Start the switcher while you are signed in to Claude. It picks up that account within a minute.
 2. Choose **Add account…**. Claude restarts on its sign-in screen. Your first account is kept.
-3. Sign in with the second account. The switcher registers it and shows a notice without restarting Claude. When you are ready to bring over other accounts' chat entries, select **Settings → Import chats from all accounts** in the Windows tray menu (or the import command in the system menu on other platforms). Importing restarts Claude; an ordinary account switch also keeps its existing chat synchronization.
+3. Sign in with the second account. The switcher registers it and shows a notice without restarting Claude. When you want to merge other accounts' chat entries, select **Settings → Import chats from all accounts** in the Windows tray menu (or the import command in the system menu on other platforms). Importing restarts Claude. Ordinary switches follow the sidebar of the account you are leaving.
 
 From then on, click an account to switch.
 
@@ -109,6 +111,8 @@ From then on, click an account to switch.
 > **Never use Sign out in Claude to change accounts.** Signing out can end that sign-in on Anthropic's side, and the switcher's saved copy may stop working. Use **Add account…** when you actually need to save a new sign-in. A failure to query usage alone does not establish that Claude's desktop session has signed out.
 
 ## Auto-switch
+
+You can archive an account manually from its account actions menu. Archived accounts leave the main list and appear under **Settings → Archived accounts**; they are skipped as automatic switch targets, but remain available for manual switching, syncing and export. Restore an account from the archived list. Archiving does not sign out or delete its saved data.
 
 Two toggles in the menu, both off until you turn them on:
 
@@ -206,8 +210,8 @@ Claude keeps its sign-in in two places inside its data folder:
 | --- | --- | --- |
 | Sign-in tokens | `config.json`: `oauth:tokenCacheV2`, `oauth:tokenCache`, `lastKnownAccountUuid` | Saves and restores these three entries, leaves every other entry untouched |
 | Web session | `Network/Cookies` | Saves and restores the file while Claude is closed |
-| Chat list | `claude-code-sessions/<account>/<organization>/local_<id>.json` | Copies missing entries in, refreshes older ones, never deletes |
-| Deleted chats | `deleted_<id>` next to the entries | Reads them, so a deleted chat is never copied back |
+| Chat list | `claude-code-sessions/<account>/<organization>/local_<id>.json` | Matches the outgoing account's visible list by conversation ID and keeps extra target entries in the archive. An unreadable list leaves the target sidebar as it was |
+| Deleted chats | `deleted_<id>` next to the entries | Carries deletion markers forward when switching and checks them when manually importing |
 | Projects | `local-agent-mode-sessions/<account>/<organization>/spaces.json` | Adds missing projects, refreshes older ones, never deletes. Leaves out the claude.ai project link of the other organization, and a project you deleted in an account is not copied back |
 | Chats stopped by a switch | `interruptedByQuitAt` in their `local_<id>.json` | Sets Claude's own quit mark on the chats you chose to continue, removes it from the other accounts' copies and from chats you unchecked |
 | Conversations | `~/.claude/projects` | Reads the end of the ones written to in the last 30 minutes to see which chats are mid-reply. Never writes. They are shared by all accounts already |
@@ -277,7 +281,7 @@ Not on its own. The app holds one sign-in at a time, and switching means signing
 Install the switcher, add each account once with **Add account…**, then pick an account from the tray menu. You never use Sign out again.
 
 **What happens to my Claude Code chats when I switch accounts?**
-They come along. The switcher copies the chat list and projects of your other accounts into the one you switch to, so the chat you were in shows up in the sidebar and you can keep going.
+The target account follows the local chat list of the account you just left. Extra target entries are available in the archive, and the conversation files stay on disk.
 
 **What happens to a reply Claude is writing when I switch?**
 It stops, because Claude has to restart. Before Claude starts again, the switcher asks which of the stopped chats should go on, and Claude continues those by itself on the new account. See [Chats that were working](#chats-that-were-working).

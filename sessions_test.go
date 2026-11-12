@@ -53,6 +53,8 @@ func TestSyncSessionsDoesNotRestoreDeletedAlias(t *testing.T) {
 	write(t, filepath.Join(root, "a", "oa", "local_first.json"), `{"cliSessionId":"shared","lastActivityAt":100}`)
 	write(t, filepath.Join(root, "b", "ob", "local_alias.json"), `{"cliSessionId":"shared","lastActivityAt":200}`)
 	write(t, filepath.Join(root, "a", "oa", "deleted_first"), "1")
+	write(t, filepath.Join(root, "b", "ob", "local_second.json"), `{"cliSessionId":"other","lastActivityAt":300}`)
+	write(t, filepath.Join(root, "a", "oa", "deleted_other"), "1")
 	if n, err := syncSessions(root, "c", "oc"); err != nil || n != 0 {
 		t.Fatalf("deleted conversation restored through its alias: %d, %v", n, err)
 	}
@@ -232,6 +234,7 @@ func TestTakeCutChatsMovesMarkToTargetAccount(t *testing.T) {
 	write(t, filepath.Join(root, "a", "oa", "local_old.json"), `{"cliSessionId":"old","interruptedByQuitAt":500}`)
 	write(t, filepath.Join(root, "b", "ob", "local_old.json"), `{"cliSessionId":"old"}`)
 	write(t, filepath.Join(root, "a", "oa", "local_hidden.json"), `{"cliSessionId":"hidden","interruptedByQuitAt":1500}`)
+	write(t, filepath.Join(root, "b", "ob", "local_hidden.json"), `{"cliSessionId":"hidden","isArchived":true}`)
 
 	cut := takeCutChats(root, "b", "ob", since, nil)
 	if len(cut) != 1 || cut[0].title != "Running" || !samePath(cut[0].path, dst) {
