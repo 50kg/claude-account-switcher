@@ -157,6 +157,7 @@ func (s *switcher) queryUsageCandidates(ctx context.Context, uuid string, creden
 		}
 	}
 	tried := 0
+	var verifiedProfile profile
 	for _, c := range ordered {
 		s.mu.Lock()
 		until := meta.RejectedUntil[c.fingerprint]
@@ -181,6 +182,8 @@ func (s *switcher) queryUsageCandidates(ctx context.Context, uuid string, creden
 			p, err = fetchProfile(ctx, c.token)
 			if err == nil && (p.Account.UUID != uuid || p.Organization.UUID != c.org) {
 				err = errUsageUnauthorized
+			} else if err == nil {
+				verifiedProfile = p
 			}
 		}
 		if err == nil {
@@ -193,7 +196,7 @@ func (s *switcher) queryUsageCandidates(ctx context.Context, uuid string, creden
 			return p, u, nil
 		}
 		if !errors.Is(err, errUsageUnauthorized) && !errors.Is(err, errUsageForbidden) {
-			return profile{}, nil, err
+			return verifiedProfile, nil, err
 		}
 		lastRejection = err
 		s.mu.Lock()
@@ -212,5 +215,5 @@ func (s *switcher) queryUsageCandidates(ctx context.Context, uuid string, creden
 	if len(credentials) == 0 {
 		return profile{}, nil, errUsageTokenUnavailable
 	}
-	return profile{}, nil, lastRejection
+	return verifiedProfile, nil, lastRejection
 }

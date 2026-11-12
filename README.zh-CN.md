@@ -6,9 +6,9 @@
 
 <img src="assets/banner.svg" width="880" alt="Claude 账号切换器：一键切换 Claude 桌面端账号，无需反复接收邮箱验证码，并保留聊天入口。">
 
-[![最新版本](https://img.shields.io/github/v/release/SnlperStripes/claude-account-switcher)](https://github.com/SnlperStripes/claude-account-switcher/releases/latest)
-[![下载次数](https://img.shields.io/github/downloads/SnlperStripes/claude-account-switcher/total)](https://github.com/SnlperStripes/claude-account-switcher/releases)
-[![测试](https://github.com/SnlperStripes/claude-account-switcher/actions/workflows/test.yml/badge.svg)](https://github.com/SnlperStripes/claude-account-switcher/actions/workflows/test.yml)
+[![最新版本](https://img.shields.io/github/v/release/50kg/claude-account-switcher)](https://github.com/50kg/claude-account-switcher/releases/latest)
+[![下载次数](https://img.shields.io/github/downloads/50kg/claude-account-switcher/total)](https://github.com/50kg/claude-account-switcher/releases)
+[![测试](https://github.com/50kg/claude-account-switcher/actions/workflows/test.yml/badge.svg)](https://github.com/50kg/claude-account-switcher/actions/workflows/test.yml)
 [![许可证：Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 ![Windows | macOS](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey)
 
@@ -18,7 +18,7 @@
 
 **登录凭证默认留在本机。** Token 保留 Claude 原有的加密形式，仅在查询账号信息和用量时发送给 `api.anthropic.com`。中文版维护 Fork 的 Windows 版还提供手动导出账号功能：生成的 `.cas-account` 文件不加密，包含登录凭证，拿到文件的人可能使用该账号。
 
-[![下载 Windows 版](https://img.shields.io/badge/Windows-.exe-2ea44f?style=for-the-badge)](https://github.com/SnlperStripes/claude-account-switcher/releases/latest/download/claude-account-switcher-windows-amd64.exe)
+[![下载 Windows 版](https://img.shields.io/badge/Windows-.exe-2ea44f?style=for-the-badge)](https://github.com/50kg/claude-account-switcher/releases/latest/download/claude-account-switcher-windows-amd64-zh-CN.exe)
 [![下载 macOS 版](https://img.shields.io/badge/macOS-universal-555555?style=for-the-badge)](https://github.com/SnlperStripes/claude-account-switcher/releases/latest/download/claude-account-switcher-macos)
 
 本项目为非官方工具，与 Anthropic 无隶属关系，也未获得其认可。
@@ -48,7 +48,7 @@
 
 **在电脑间迁移单个账号。** Windows 版可从账号行的“⋯”菜单导出，再在另一台电脑的“设置 → 导入单个账号”中导入。未加密的 `.cas-account` 文件包含该账号登录资料和 Cookie，不包含聊天记录。导入只会新增切换器中的账号档案，不会更改 Claude 当前登录。导出正在使用的账号前，请你手动关闭 Claude；切换器不会替你关闭。准备导出文件时，会在所选文件夹短暂创建 Cookie 临时文件，处理结束后清理。请妥善保管迁移文件，并在导入后删除。
 
-**查看额度并切换账号。** Windows左键和右键点击托盘图标都打开同一个自定义菜单；姓名、套餐和邮箱在同一行；账号整行以白色、浅灰色交替区分，Pro、Max、Ultra分别显示蓝色、紫色、金色套餐标签。各项重置时间紧跟对应标题。所有账号保持展开，点击身份或额度区域不会切换账号；使用独立的“切换账号”按钮并确认重启后才执行切换。macOS沿用原有系统菜单。其他应用设置保持原样。
+**查看额度并切换账号。** Windows左键和右键点击托盘图标都打开同一个自定义菜单；姓名、套餐和邮箱在同一行；账号整行以白色、浅灰色交替区分，Pro、Max、Ultra分别显示蓝色、紫色、金色套餐标签。套餐标签优先使用 Claude 返回的显示名称，已保存账号每天核对一次；即使组织类型仍为 Max，Ultra 也会正确显示。各项重置时间紧跟对应标题。所有账号保持展开，点击身份或额度区域不会切换账号；使用独立的“切换账号”按钮并确认重启后才执行切换。macOS沿用原有系统菜单。其他应用设置保持原样。
 
 **聊天和项目随账号切换。** Claude 启动前，切换器以刚切出的账号的本地 Claude Code 侧栏为准，补上缺少的会话、恢复应显示的归档条目，并归档目标账号多出来的条目。项目分组也会同步。
 
@@ -81,7 +81,7 @@
 
 下载适合你系统的文件并运行即可，无需安装运行时。
 
-- **Windows 10/11：**下载 [`claude-account-switcher-windows-amd64.exe`](https://github.com/SnlperStripes/claude-account-switcher/releases/latest/download/claude-account-switcher-windows-amd64.exe)。支持 Microsoft Store 版和直接下载安装的 Claude。也可以使用 winget 安装，之后通过 `claude-account-switcher` 启动：
+- **Windows 10/11：**下载 [中文版维护版](https://github.com/50kg/claude-account-switcher/releases/latest/download/claude-account-switcher-windows-amd64-zh-CN.exe)。支持 Microsoft Store 版和直接下载安装的 Claude。也可以使用 winget 安装标准上游版，之后通过 `claude-account-switcher` 启动：
 
   ```powershell
   winget install SnlperStripes.ClaudeAccountSwitcher
@@ -274,7 +274,7 @@ go build -ldflags "-H=windowsgui -s -w -X main.defaultLanguage=zh-CN -X main.man
 为 Windows exe 添加版本信息和应用清单时，可先执行上游构建流程中的资源生成命令，再执行上述编译命令：
 
 ```powershell
-go run github.com/tc-hib/go-winres@v0.3.3 make --arch amd64 --product-version 0.3.6.0 --file-version 0.3.6.0
+go run github.com/tc-hib/go-winres@v0.3.3 make --arch amd64 --product-version 0.3.6.23 --file-version 0.3.6.23
 ```
 
 如需运行额外的真实聊天索引回归检查，可将 `SESSION_INDEX_SAMPLE` 设置为已去重的、离线的 `claude-code-sessions` 目录副本，再运行 `go test ./...`。测试只操作临时副本，不会修改提供的样本。请勿把真实账号数据或聊天索引提交到仓库。

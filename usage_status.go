@@ -19,16 +19,19 @@ const (
 )
 
 type usageJob struct {
-	uuid string
-	new  bool
+	uuid    string
+	new     bool
+	profile bool
 }
+
+const planRefreshInterval = 24 * time.Hour
 
 // usageJobs runs with s.mu held and only schedules checks; it never reads or
 // changes Claude's files. Existing accounts are refreshed rather than added.
 func (s *switcher) usageJobs(active string, now time.Time) []usageJob {
 	var jobs []usageJob
 	if active != "" && s.account(active) == nil && !now.Before(s.backoff[active]) {
-		jobs = append(jobs, usageJob{active, true})
+		jobs = append(jobs, usageJob{uuid: active, new: true, profile: true})
 	}
 	for _, a := range s.st.Accounts {
 		every := idleEvery
@@ -47,7 +50,8 @@ func (s *switcher) usageJobs(active string, now time.Time) []usageJob {
 			due = at.IsZero() || now.Sub(at) >= time.Duration(s.refreshMinutes)*time.Minute-5*time.Second
 		}
 		if due && !now.Before(s.backoff[a.UUID]) {
-			jobs = append(jobs, usageJob{a.UUID, false})
+			profileDue := a.PlanCheckedAt.IsZero() || now.Sub(a.PlanCheckedAt) >= planRefreshInterval
+			jobs = append(jobs, usageJob{uuid: a.UUID, profile: profileDue})
 		}
 	}
 	return jobs

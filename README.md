@@ -6,9 +6,9 @@
 
 <img src="assets/banner.svg" width="880" alt="Claude Account Switcher: switch the Claude desktop app between accounts. No email code, your chats come along.">
 
-[![Latest release](https://img.shields.io/github/v/release/SnlperStripes/claude-account-switcher)](https://github.com/SnlperStripes/claude-account-switcher/releases/latest)
-[![Downloads](https://img.shields.io/github/downloads/SnlperStripes/claude-account-switcher/total)](https://github.com/SnlperStripes/claude-account-switcher/releases)
-[![Tests](https://github.com/SnlperStripes/claude-account-switcher/actions/workflows/test.yml/badge.svg)](https://github.com/SnlperStripes/claude-account-switcher/actions/workflows/test.yml)
+[![Latest release](https://img.shields.io/github/v/release/50kg/claude-account-switcher)](https://github.com/50kg/claude-account-switcher/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/50kg/claude-account-switcher/total)](https://github.com/50kg/claude-account-switcher/releases)
+[![Tests](https://github.com/50kg/claude-account-switcher/actions/workflows/test.yml/badge.svg)](https://github.com/50kg/claude-account-switcher/actions/workflows/test.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 ![Windows | macOS](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey)
 
@@ -19,7 +19,7 @@ carries your Claude Code chats across, and shows the live usage of every account
 
 **Your sign-ins stay on your machine by default.** Tokens stay encrypted exactly as Claude stored them and are only sent to `api.anthropic.com`. The Windows maintenance fork also has an optional, user-initiated account export. Its `.cas-account` file is deliberately unencrypted and contains login credentials; anyone with the file may use that account.
 
-[![Download for Windows](https://img.shields.io/badge/Download_for_Windows-.exe-2ea44f?style=for-the-badge)](https://github.com/SnlperStripes/claude-account-switcher/releases/latest/download/claude-account-switcher-windows-amd64.exe)
+[![Download for Windows](https://img.shields.io/badge/Download_for_Windows-.exe-2ea44f?style=for-the-badge)](https://github.com/50kg/claude-account-switcher/releases/latest/download/claude-account-switcher-windows-amd64-zh-CN.exe)
 [![Download for macOS](https://img.shields.io/badge/Download_for_macOS-universal-555555?style=for-the-badge)](https://github.com/SnlperStripes/claude-account-switcher/releases/latest/download/claude-account-switcher-macos)
 
 Unofficial. Not affiliated with or endorsed by Anthropic.
@@ -45,7 +45,7 @@ Three of those four steps are pure overhead, and the fourth is a guess.
 
 **Moves one saved account to another computer.** In the Windows fork, use the account row's `…` menu to export that account, then choose **Settings → Import one account** on the other computer. The unencrypted `.cas-account` file contains that account's sign-in and cookies, not chats. Import adds it to the switcher's saved accounts and leaves Claude's current sign-in alone. Close Claude yourself before exporting the account currently in use; the switcher will not close it for you. Temporary cookie files are created in the chosen export folder while the file is prepared and removed when the operation finishes. Store the export privately and delete it after import.
 
-**Shows quotas before switching.** On Windows, either mouse button opens the same native custom tray menu, with names, plans and emails on one line. Account rows alternate white and light grey backgrounds; Pro, Max and Ultra use blue, purple and gold plan badges. Reset times follow their quota titles. All accounts stay expanded; reading an identity or quota never switches accounts. The separate Switch button asks before restarting Claude. macOS keeps its existing system menu. Other Claude settings remain unchanged.
+**Shows quotas before switching.** On Windows, either mouse button opens the same native custom tray menu, with names, plans and emails on one line. Account rows alternate white and light grey backgrounds; Pro, Max and Ultra use blue, purple and gold plan badges. Plan badges use Claude's displayed plan name and saved accounts recheck it daily, so an Ultra account remains labeled Ultra when its organization type still says Max. Reset times follow their quota titles. All accounts stay expanded; reading an identity or quota never switches accounts. The separate Switch button asks before restarting Claude. macOS keeps its existing system menu. Other Claude settings remain unchanged.
 
 **Shows subscription dates for each account.** The tray displays the end of paid access, or the next renewal when Claude supplies it. App Store dates are managed by Apple: in the Windows account menu (…), choose **View or record Apple subscription date**, check the purchasing Apple Account’s subscriptions, then save the renewal or end date as a local manual note. These notes never roll forward automatically. For Claude web subscriptions, the switcher checks every six hours; if a web verification is required, use the account menu to open a separate verification window. Dates are accepted only after the account and organization match. A failed query is distinguished from an absent date and any prior date is marked as last known.
 
@@ -80,7 +80,7 @@ The first real run, on Windows 11 with the Microsoft Store version of Claude, fr
 
 Download the file for your platform and run it. No installer, no runtime, one file.
 
-- **Windows 10/11:** [`claude-account-switcher-windows-amd64.exe`](https://github.com/SnlperStripes/claude-account-switcher/releases/latest/download/claude-account-switcher-windows-amd64.exe). Works with the Microsoft Store app and the direct download. Or install it with winget and start it with `claude-account-switcher`:
+- **Windows 10/11:** [`claude-account-switcher-windows-amd64-zh-CN.exe`](https://github.com/50kg/claude-account-switcher/releases/latest/download/claude-account-switcher-windows-amd64-zh-CN.exe). Works with the Microsoft Store app and the direct download. Or install the standard upstream build with winget and start it with `claude-account-switcher`:
   ```
   winget install SnlperStripes.ClaudeAccountSwitcher
   ```

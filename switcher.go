@@ -16,16 +16,17 @@ import (
 
 // Account is a Claude account the switcher has seen signed in.
 type Account struct {
-	UUID      string       `json:"uuid"`
-	Org       string       `json:"org"`
-	Name      string       `json:"name"`
-	Email     string       `json:"email"`
-	Plan      string       `json:"plan"`
-	Archived  bool         `json:"archived,omitempty"`
-	Usage     *Usage       `json:"usage,omitempty"`
-	Billing   *billingInfo `json:"billing,omitempty"`
-	AppleDate *billingNote `json:"appleDate,omitempty"`
-	Problem   string       `json:"problem,omitempty"`
+	UUID          string       `json:"uuid"`
+	Org           string       `json:"org"`
+	Name          string       `json:"name"`
+	Email         string       `json:"email"`
+	Plan          string       `json:"plan"`
+	PlanCheckedAt time.Time    `json:"planCheckedAt,omitempty"`
+	Archived      bool         `json:"archived,omitempty"`
+	Usage         *Usage       `json:"usage,omitempty"`
+	Billing       *billingInfo `json:"billing,omitempty"`
+	AppleDate     *billingNote `json:"appleDate,omitempty"`
+	Problem       string       `json:"problem,omitempty"`
 	// A rate limit belongs to the usage endpoint, not the desktop sign-in.
 	UsageRetryAt time.Time `json:"usageRetryAt,omitempty"`
 }
@@ -254,17 +255,26 @@ func (s *switcher) check(ctx context.Context) (string, func() error) {
 		var p profile
 		var u *Usage
 		if err == nil {
-			p, u, err = s.queryUsageCandidates(ctx, j.uuid, credentials, j.new)
+			p, u, err = s.queryUsageCandidates(ctx, j.uuid, credentials, j.profile)
 		}
 
 		s.mu.Lock()
+		checkedAt := time.Now()
+		if !j.new && j.profile && p.Account.UUID == j.uuid {
+			if a := s.account(j.uuid); a != nil && p.Organization.UUID == a.Org {
+				a.PlanCheckedAt = checkedAt
+				if plan := p.plan(); plan != "" {
+					a.Plan = plan
+				}
+			}
+		}
 		if j.new && err == nil {
-			a := &Account{UUID: j.uuid, Org: p.Organization.UUID, Name: p.Account.DisplayName, Email: p.Account.Email, Plan: p.plan()}
+			a := &Account{UUID: j.uuid, Org: p.Organization.UUID, Name: p.Account.DisplayName, Email: p.Account.Email, Plan: p.plan(), PlanCheckedAt: checkedAt}
 			s.st.Accounts = append(s.st.Accounts, a)
 			added = true
 			log.Printf("added account %s", a.label())
 		}
-		s.recordUsageResult(j.uuid, u, err, time.Now())
+		s.recordUsageResult(j.uuid, u, err, checkedAt)
 		s.mu.Unlock()
 	}
 

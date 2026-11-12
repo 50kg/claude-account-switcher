@@ -54,24 +54,41 @@ type profile struct {
 		HasPro      bool   `json:"has_claude_pro"`
 	} `json:"account"`
 	Organization struct {
-		UUID        string `json:"uuid"`
-		Type        string `json:"organization_type"`
-		BillingType string `json:"billing_type"`
+		UUID             string `json:"uuid"`
+		Type             string `json:"organization_type"`
+		PlanDisplayName  string `json:"plan_display_name"`
+		PlanDisplayLabel string `json:"plan_display_label"`
+		BillingType      string `json:"billing_type"`
 	} `json:"organization"`
 }
 
-// plan names the subscription. The organization type is current; the
-// account flags are only a fallback.
+// plan names the subscription. Display names carry product tiers such as
+// Ultra that may still share an older organization type such as claude_max.
 func (p profile) plan() string {
-	switch t := strings.TrimPrefix(p.Organization.Type, "claude_"); {
-	case t == "max" || t == "pro" || t == "ultra" || t == "team" || t == "enterprise":
-		return strings.ToUpper(t[:1]) + t[1:]
-	case p.Account.HasMax:
+	for _, name := range []string{p.Organization.PlanDisplayName, p.Organization.PlanDisplayLabel, p.Organization.Type} {
+		if plan := knownPlanName(name); plan != "" {
+			return plan
+		}
+	}
+	if p.Account.HasMax {
 		return "Max"
-	case p.Account.HasPro:
+	}
+	if p.Account.HasPro {
 		return "Pro"
 	}
 	return ""
+}
+
+func knownPlanName(name string) string {
+	name = strings.ToLower(strings.TrimSpace(name))
+	name = strings.TrimPrefix(name, "claude_")
+	name = strings.TrimSuffix(name, " plan")
+	switch name {
+	case "max", "pro", "ultra", "team", "enterprise":
+		return strings.ToUpper(name[:1]) + name[1:]
+	default:
+		return ""
+	}
 }
 
 var client = &http.Client{Timeout: 15 * time.Second}
