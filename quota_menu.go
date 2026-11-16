@@ -30,6 +30,7 @@ type quotaMenuView struct {
 
 type quotaMenuAccount struct {
 	ID, Name, Email, Plan, Problem string
+	Note                           string
 	Billing                        string
 	AppleSubscription              bool
 	Current, Stale, Archived       bool
@@ -55,7 +56,7 @@ func makeQuotaMenuView(s snapshot, startup bool, now time.Time) quotaMenuView {
 		v.Status = ""
 	}
 	for _, a := range s.Accounts {
-		row := quotaMenuAccount{ID: a.UUID, Name: menuSingleLine(a.Name), Email: menuSingleLine(a.Email), Plan: menuSingleLine(a.Plan),
+		row := quotaMenuAccount{ID: a.UUID, Name: menuSingleLine(a.Name), Email: menuSingleLine(a.Email), Plan: menuSingleLine(a.Plan), Note: menuSingleLine(a.Note),
 			Current: a.UUID == s.Active, Archived: a.Archived, Problem: usageProblemText(a, now), Stale: !freshModelUsage(a, now), Billing: a.billingText(now), AppleSubscription: a.Billing != nil && a.Billing.Provider == "apple"}
 		if row.Name == "" {
 			row.Name = tr("Account", "账号")
@@ -136,6 +137,7 @@ func (q quotaMenuReading) values() string {
 
 type quotaMenuAction struct {
 	Kind, Account, Active string
+	Note                  string
 	SortMode              string
 	AccountOrder          []string
 	Enabled, Confirmed    bool
@@ -210,11 +212,24 @@ func validateQuotaMenuAction(a quotaMenuAction, s snapshot) error {
 			}
 		}
 		return reject()
-	case "account-export", "billing-web", "session-login", "session-start":
+	case "account-delete":
+		if !a.Confirmed || s.Busy || s.Syncing || a.Account == "" || a.Active != s.Active || a.Account == s.Active {
+			return reject()
+		}
+		for _, account := range s.Accounts {
+			if account.UUID == a.Account && account.Archived {
+				return nil
+			}
+		}
+		return reject()
+	case "account-note", "account-export", "billing-web", "session-login", "session-start":
 		if s.Busy || s.Syncing || a.Account == "" {
 			return reject()
 		}
 		if a.Kind == "session-start" && !a.Confirmed {
+			return reject()
+		}
+		if a.Kind == "account-note" && !validAccountNote(a.Note) {
 			return reject()
 		}
 		for _, account := range s.Accounts {
@@ -302,6 +317,9 @@ const (
 
 func quotaAccountHeight(a quotaMenuAccount) int {
 	height := quotaAccountHeaderHeight + 4
+	if a.Note != "" {
+		height += quotaBillingHeight
+	}
 	if a.Billing != "" {
 		height += quotaBillingHeight
 	}

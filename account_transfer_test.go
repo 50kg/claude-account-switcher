@@ -32,7 +32,7 @@ func TestAccountTransferSyntheticRoundTrip(t *testing.T) {
 	}
 	root := t.TempDir()
 	source := newSwitcher(filepath.Join(root, "source"))
-	account := &Account{UUID: "synthetic-migration-account", Org: "synthetic-org", Name: "虚构账号", Email: "synthetic@example.com", Plan: "Max"}
+	account := &Account{UUID: "synthetic-migration-account", Org: "synthetic-org", Name: "虚构账号", Email: "synthetic@example.com", Plan: "Max", Note: "迁移备注 🚀"}
 	source.st.Accounts = []*Account{account}
 	source.active = "synthetic-source-current"
 	profile := source.profileDir(account.UUID)
@@ -162,6 +162,9 @@ func TestAccountTransferSyntheticRoundTrip(t *testing.T) {
 	}
 	if imported.UUID != account.UUID || target.active != current.UUID || len(target.st.Accounts) != 2 {
 		t.Fatal("import replaced the current account or omitted the migrated account")
+	}
+	if imported.Note != account.Note {
+		t.Fatal("account transfer lost the note")
 	}
 	if got, err := os.ReadFile(filepath.Join(currentProfile, "config.json")); err != nil || !bytes.Equal(got, sentinel) {
 		t.Fatal("import modified the existing target profile")

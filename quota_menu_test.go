@@ -110,6 +110,29 @@ func TestQuotaMenuActionsRejectUnconfirmedStaleAndUnknownIntent(t *testing.T) {
 	}
 }
 
+func TestAccountDeletionRequiresConfirmedArchivedInactiveAccount(t *testing.T) {
+	s := snapshot{Active: "current", Accounts: []Account{{UUID: "current", Archived: true}, {UUID: "target", Archived: true}, {UUID: "visible"}}}
+	a := quotaMenuAction{Kind: "account-delete", Account: "target", Active: "current", Confirmed: true}
+	if err := validateQuotaMenuAction(a, s); err != nil {
+		t.Fatal(err)
+	}
+	for _, change := range []func(*quotaMenuAction, *snapshot){
+		func(a *quotaMenuAction, s *snapshot) { a.Confirmed = false },
+		func(a *quotaMenuAction, s *snapshot) { a.Account = "current" },
+		func(a *quotaMenuAction, s *snapshot) { a.Account = "visible" },
+		func(a *quotaMenuAction, s *snapshot) { a.Account = "missing" },
+		func(a *quotaMenuAction, s *snapshot) { a.Active = "outdated" },
+		func(a *quotaMenuAction, s *snapshot) { s.Busy = true },
+		func(a *quotaMenuAction, s *snapshot) { s.Syncing = true },
+	} {
+		attempt, snap := a, s
+		change(&attempt, &snap)
+		if validateQuotaMenuAction(attempt, snap) == nil {
+			t.Fatalf("accepted deletion without its prerequisites: %+v", attempt)
+		}
+	}
+}
+
 func TestQuotaMenuPlacementStaysInsideNegativeAndScaledWorkAreas(t *testing.T) {
 	for _, work := range []quotaRect{{0, 0, 1920, 1040}, {-2560, -200, 2560, 1400}, {0, 0, 800, 500}} {
 		for _, point := range [][2]int{{work.X, work.Y}, {work.X + work.W, work.Y + work.H}, {work.X + work.W/2, work.Y + work.H/2}} {

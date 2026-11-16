@@ -20,6 +20,7 @@ type Account struct {
 	Org           string       `json:"org"`
 	Name          string       `json:"name"`
 	Email         string       `json:"email"`
+	Note          string       `json:"note,omitempty"`
 	Plan          string       `json:"plan"`
 	PlanCheckedAt time.Time    `json:"planCheckedAt,omitempty"`
 	Archived      bool         `json:"archived,omitempty"`

@@ -32,6 +32,9 @@ func verifyBillingWeb(s *switcher, id string) error {
 		return errors.New(tr("A billing window is already open", "账单核验窗口已打开"))
 	}
 	defer s.billingWindow.Store(false)
+	if s.busy.Load() {
+		return errors.New(tr("Wait for the current operation to finish", "请等待当前操作完成"))
+	}
 	snap := s.snapshot()
 	for _, a := range snap.Accounts {
 		if a.UUID != id {

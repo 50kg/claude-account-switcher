@@ -46,6 +46,7 @@ const (
 	qmMuted        = 0x616b78
 	qmLine         = 0xe6eaf0
 	qmBlue         = 0x367de5
+	qmRed          = 0xc73b4b
 	qmTrack        = 0xe9eef5
 	qmWhite        = 0xffffff
 	qmAlternateRow = 0xf1f4f8
@@ -369,6 +370,12 @@ func (p *qmPainter) account(a quotaMenuAccount, index, y, height int) {
 		}
 	}
 	qy := y + quotaAccountHeaderHeight
+	if a.Note != "" {
+		note := tr("Note: ", "备注：") + a.Note
+		p.text(note, quotaRect{20, qy - 2, w.width - 40, quotaBillingHeight}, 1, qmMuted, false)
+		w.addTooltip(quotaRect{20, qy - 2, w.width - 40, quotaBillingHeight}, note)
+		qy += quotaBillingHeight
+	}
 	if a.Billing != "" {
 		p.text(a.Billing, quotaRect{20, qy - 2, w.width - 40, quotaBillingHeight}, 1, qmMuted, false)
 		qy += quotaBillingHeight

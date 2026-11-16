@@ -426,10 +426,14 @@ func (t *tray) handleQuotaMenuAction(action quotaMenuAction) error {
 		return saveQuotaMenuAccountOrder(filepath.Join(t.s.dir, "ui.json"), action.AccountOrder)
 	case "account-export":
 		return handleAccountExport(t.s, action.Account)
+	case "account-note":
+		return t.s.setAccountNote(action.Account, action.Note)
 	case "archive":
 		return t.s.setAccountArchived(action.Account, true)
 	case "unarchive":
 		return t.s.setAccountArchived(action.Account, false)
+	case "account-delete":
+		return t.s.deleteArchivedAccount(action.Account)
 	case "billing-web":
 		return verifyBillingWeb(t.s, action.Account)
 	case "session-login", "session-start":

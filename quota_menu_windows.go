@@ -246,6 +246,9 @@ func (m *nativeQuotaMenu) run() {
 		if int32(r) <= 0 {
 			return
 		}
+		if w.noteMessage(msg) {
+			continue
+		}
 		qmTranslate.Call(uintptr(unsafe.Pointer(&msg)))
 		qmDispatch.Call(uintptr(unsafe.Pointer(&msg)))
 	}
@@ -285,6 +288,8 @@ type quotaMenuChoice struct {
 type quotaMenuWindow struct {
 	menu                                                           *nativeQuotaMenu
 	hwnd                                                           uintptr
+	noteEdit                                                       uintptr
+	noteComposing                                                  bool
 	view                                                           quotaMenuView
 	archivedView                                                   bool
 	dpi, width, height, bodyTop, bodyBottom, contentHeight, scroll int
@@ -464,6 +469,15 @@ func quotaMenuWindowProc(hwnd, msg, wp, lp uintptr) uintptr {
 		if w.intervalKey(wp) {
 			return 0
 		}
+		if wp == 9 && w.noteEdit != 0 {
+			shift, _, _ := qmKeyState.Call(16)
+			if w.focus == 2 && shift&0x8000 == 0 || w.focus == 0 && shift&0x8000 != 0 {
+				w.focus = -1
+				qmSetFocus.Call(w.noteEdit)
+				w.invalidate()
+				return 0
+			}
+		}
 		switch wp {
 		case 27:
 			if w.overlay != nil {
@@ -534,6 +548,7 @@ func quotaMenuWindowProc(hwnd, msg, wp, lp uintptr) uintptr {
 		}
 		return 0
 	case 0x02: // WM_DESTROY
+		w.noteEdit = 0
 		w.heightDrag = nil
 		w.scrollDragging = false
 		procKillTimer.Call(hwnd, 2)
@@ -572,6 +587,7 @@ func (w *quotaMenuWindow) input() quotaMenuInput {
 func (w *quotaMenuWindow) reload(show bool) {
 	w.view = w.menu.view()
 	if show {
+		w.closeNoteEdit()
 		w.archivedView = false
 	}
 	if preferences, err := loadQuotaMenuPreferences(w.menu.preferencesPath); err == nil {
@@ -654,6 +670,7 @@ func (w *quotaMenuWindow) reload(show bool) {
 	// Synchronous first paint: no HTML, animation frame or child process can
 	// keep a successfully created menu hidden.
 	qmUpdateWindow.Call(w.hwnd)
+	w.positionNoteEdit()
 }
 
 func (w *quotaMenuWindow) visibleAccounts() []quotaMenuAccount {
@@ -664,6 +681,7 @@ func (w *quotaMenuWindow) visibleAccounts() []quotaMenuAccount {
 }
 
 func (w *quotaMenuWindow) hide() {
+	w.closeNoteEdit()
 	w.finishHeightDrag(true)
 	w.stopScrollDrag()
 	w.finishAccountOrderDrag(false)
@@ -715,6 +733,7 @@ func (w *quotaMenuWindow) hit(x, y int) int {
 }
 
 func (w *quotaMenuWindow) closeOverlay() {
+	w.closeNoteEdit()
 	w.overlay = nil
 	w.focus, w.hover, w.pressed = -1, -1, -1
 	w.invalidate()
@@ -730,6 +749,9 @@ func (w *quotaMenuWindow) activate(hit quotaMenuHit) {
 		w.focus, w.hover, w.pressed = -1, -1, -1
 		if hit.Popup == "interval" {
 			w.openInterval()
+		}
+		if hit.Popup == "note" {
+			w.openNote()
 		}
 		w.invalidate()
 		return
@@ -750,10 +772,13 @@ func (w *quotaMenuWindow) activate(hit quotaMenuHit) {
 	if w.activateInterval(a) {
 		return
 	}
+	if w.activateNote(a) {
+		return
+	}
 	if a.Kind == "" {
 		return
 	}
-	if (a.Kind == "switch" || a.Kind == "add" || a.Kind == "import" || a.Kind == "session-start") && !a.Confirmed {
+	if (a.Kind == "switch" || a.Kind == "add" || a.Kind == "import" || a.Kind == "session-start" || a.Kind == "account-delete") && !a.Confirmed {
 		// Preserve the selected action until the user confirms. The
 		// dispatcher revalidates it against the latest snapshot before acting.
 		w.overlay = &quotaMenuOverlay{Kind: "confirm", Confirm: a}
@@ -761,7 +786,7 @@ func (w *quotaMenuWindow) activate(hit quotaMenuHit) {
 		w.invalidate()
 		return
 	}
-	keepOpen := a.Kind == "auto" || a.Kind == "spend" || a.Kind == "threshold" || a.Kind == "autostart" || a.Kind == "sync" || a.Kind == "sort" || a.Kind == "session-start"
+	keepOpen := a.Kind == "auto" || a.Kind == "spend" || a.Kind == "threshold" || a.Kind == "autostart" || a.Kind == "sync" || a.Kind == "sort" || a.Kind == "session-start" || a.Kind == "account-delete"
 	w.closeOverlay()
 	if !keepOpen {
 		w.hide()
@@ -823,6 +848,7 @@ func (w *quotaMenuWindow) choices(kind string) []quotaMenuChoice {
 			}
 		}
 		choices := []quotaMenuChoice{
+			{Label: tr("Edit account note…", "编辑自定义备注…"), Disabled: w.view.Busy, Popup: "note", Action: quotaMenuAction{Account: w.overlay.Account}},
 			{Label: tr("Start 5-hour window…", "启动 5 小时窗口…"), Disabled: w.view.Busy, Action: quotaMenuAction{Kind: "session-start", Account: w.overlay.Account}},
 			{Label: tr("Sign in to Claude Code for this account…", "为此账号登录 Claude Code…"), Disabled: w.view.Busy, Action: quotaMenuAction{Kind: "session-login", Account: w.overlay.Account}},
 			{Separator: true},
@@ -831,6 +857,12 @@ func (w *quotaMenuWindow) choices(kind string) []quotaMenuChoice {
 		}
 		if archived {
 			choices = append(choices, quotaMenuChoice{Label: tr("Restore to account list", "恢复到账号列表"), Disabled: w.view.Busy, Action: quotaMenuAction{Kind: "unarchive", Account: w.overlay.Account}})
+			deleteLabel := tr("Permanently delete account…", "彻底删除账号…")
+			current := w.overlay.Account == w.view.Active
+			if current {
+				deleteLabel = tr("Switch accounts before deleting", "请先切换到其他账号再删除")
+			}
+			choices = append(choices, quotaMenuChoice{Separator: true}, quotaMenuChoice{Label: deleteLabel, Disabled: w.view.Busy || current, Action: quotaMenuAction{Kind: "account-delete", Account: w.overlay.Account, Active: w.view.Active}})
 		} else {
 			choices = append(choices, quotaMenuChoice{Label: tr("Archive account", "归档账号"), Disabled: w.view.Busy, Action: quotaMenuAction{Kind: "archive", Account: w.overlay.Account}})
 		}

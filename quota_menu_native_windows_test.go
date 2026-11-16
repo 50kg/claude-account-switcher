@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -28,6 +29,7 @@ type quotaMenuFixture struct {
 	now          time.Time
 	startup      bool
 	failInterval bool
+	failNote     bool
 }
 
 func newQuotaMenuFixture() *quotaMenuFixture {
@@ -59,6 +61,9 @@ func newQuotaMenuFixture() *quotaMenuFixture {
 		if err == nil && a.Kind == "interval" && f.failInterval {
 			err = errors.New("测试保存失败")
 		}
+		if err == nil && a.Kind == "account-note" && f.failNote {
+			err = errors.New("测试保存失败")
+		}
 		if err == nil {
 			switch a.Kind {
 			case "auto":
@@ -69,6 +74,14 @@ func newQuotaMenuFixture() *quotaMenuFixture {
 				f.snapshot.Threshold = a.Threshold
 			case "switch":
 				f.snapshot.Active = a.Account
+			case "account-delete":
+				f.snapshot.Accounts = slices.DeleteFunc(f.snapshot.Accounts, func(account Account) bool { return account.UUID == a.Account })
+			case "account-note":
+				for i := range f.snapshot.Accounts {
+					if f.snapshot.Accounts[i].UUID == a.Account {
+						f.snapshot.Accounts[i].Note = strings.TrimSpace(a.Note)
+					}
+				}
 			case "autostart":
 				f.startup = a.Enabled
 			case "interval":

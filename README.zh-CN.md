@@ -1,5 +1,7 @@
 **中文版维护分支：** 请到 [50kg 的中文版发布页](https://github.com/50kg/claude-account-switcher/releases/latest)下载默认中文的 Windows 程序。发布包中的“下载中文版更新…”菜单会打开本 Fork 的下载页，供手动更新；不会自动安装上游英文程序，也不会在后台查询上游版本。更新前请先退出旧版切换器，再双击新版。下文自动更新和 winget 说明适用于标准上游构建。
 
+[0.3.6.24 中文正式版](https://github.com/50kg/claude-account-switcher/releases/tag/zh-CN-0.3.6.24)新增账号自定义备注，以及已归档账号的彻底删除功能。
+
 <div align="center">
 
 [English](README.md) | [简体中文](README.zh-CN.md)
@@ -41,6 +43,8 @@
 ## 主要功能
 
 **保留各账号的登录状态。** 切换离开当前账号时保存登录状态，切回来时恢复。每个账号首次添加时需要验证码，之后只要登录凭证仍有效，就无需反复验证。
+
+**为账号添加自定义备注。** Windows 用户可从账号的“⋯ → 编辑自定义备注…”填写最多160个字符的单行备注，普通账号和已归档账号均可使用。保存后备注显示在账号身份下方，较长内容可悬停查看完整文本；清空输入并保存即可移除。备注会在重启后保留，导出单个 `.cas-account` 账号时也会一并迁移。
 
 **无需切换账号即可启动 5 小时窗口。** 安装最新版 [Windows 原生 Claude Code](https://code.claude.com/docs/en/setup)，首次使用时从目标账号的“⋯ → 为此账号登录 Claude Code”完成官方登录。之后选择“⋯ → 启动 5 小时窗口”，确认后会核对登录账号和组织，再用 Haiku 发送一句短消息并更新该账号的用量。已有窗口时会直接显示重置时间。当前 Claude 桌面账号可以继续使用。
 
@@ -112,6 +116,8 @@
 3. 登录第二个账号。切换器识别后登记账号并提示手动导入。需要合并其他账号的聊天时，在 Windows 托盘菜单选择 **设置 → 导入所有账号的聊天**（其他平台在系统菜单中选择导入命令）。手动导入会重启 Claude。日常切换以刚切出账号的侧栏为准。
 
 之后，点击托盘菜单中的账号即可切换。
+
+可在账号的“⋯”菜单中手动归档，再从“设置 → 已归档账号”查看或恢复。Windows 用户可在已归档账号的“⋯ → 彻底删除账号…”中确认删除，清理切换器保存的登录资料、Cookie、用量和账单记录、该账号的专用 Claude Code 登录及对应切换备份；其他账号档案中缓存的该账号 OAuth 条目也会清除，保留其他账号的登录条目。删除当前账号前请先切换到其他账号。删除无法撤销；Claude 聊天记录和已导出的 `.cas-account` 文件会保留。
 
 > [!IMPORTANT]
 > **切换账号时，请使用切换器，不要在 Claude 中点击“退出登录”。** 退出登录可能让 Anthropic 撤销凭证，使切换器保存的副本失效。确实需要保存新的登录状态时再使用“添加账号…”。仅凭用量查询失败，不能断定当前 Claude 桌面会话已经退出。
@@ -274,7 +280,7 @@ go build -ldflags "-H=windowsgui -s -w -X main.defaultLanguage=zh-CN -X main.man
 为 Windows exe 添加版本信息和应用清单时，可先执行上游构建流程中的资源生成命令，再执行上述编译命令：
 
 ```powershell
-go run github.com/tc-hib/go-winres@v0.3.3 make --arch amd64 --product-version 0.3.6.23 --file-version 0.3.6.23
+go run github.com/tc-hib/go-winres@v0.3.3 make --arch amd64 --product-version 0.3.6.24 --file-version 0.3.6.24
 ```
 
 如需运行额外的真实聊天索引回归检查，可将 `SESSION_INDEX_SAMPLE` 设置为已去重的、离线的 `claude-code-sessions` 目录副本，再运行 `go test ./...`。测试只操作临时副本，不会修改提供的样本。请勿把真实账号数据或聊天索引提交到仓库。

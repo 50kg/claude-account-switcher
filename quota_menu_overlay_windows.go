@@ -16,6 +16,10 @@ func (p *qmPainter) overlay() {
 		p.intervalEditor(o)
 		return
 	}
+	if o.Kind == "note" {
+		p.noteEditor(o)
+		return
+	}
 	choices := w.choices(o.Kind)
 	width := min(languageOffset(360, 314), w.width-24)
 	height := quotaChoicesHeight(choices)
@@ -67,11 +71,15 @@ func (p *qmPainter) overlay() {
 func (p *qmPainter) confirmation(o *quotaMenuOverlay) {
 	w := p.w
 	startSession := o.Confirm.Kind == "session-start"
-	showAccount := o.Confirm.Kind == "switch" || startSession
+	deleteAccount := o.Confirm.Kind == "account-delete"
+	showAccount := o.Confirm.Kind == "switch" || startSession || deleteAccount
 	width := min(440, w.width-24)
 	height := 184
 	if showAccount {
 		height += 44
+	}
+	if deleteAccount {
+		height += 52
 	}
 	x, y := (w.width-width)/2, max(8, (w.height-height)/2)
 	o.Rect = quotaRect{x, y, width, height}
@@ -84,6 +92,8 @@ func (p *qmPainter) confirmation(o *quotaMenuOverlay) {
 		title = tr("Import chats from all accounts?", "导入所有账号的聊天？")
 	} else if startSession {
 		title = tr("Start this account's 5-hour window?", "启动此账号的 5 小时窗口？")
+	} else if deleteAccount {
+		title = tr("Permanently delete this account?", "彻底删除此账号？")
 	}
 	p.text(title, quotaRect{x + 18, y + 12, width - 36, 30}, 2, qmInk, false)
 	textY := y + 48
@@ -104,8 +114,15 @@ func (p *qmPainter) confirmation(o *quotaMenuOverlay) {
 	if startSession {
 		detail = tr("Send one short message using this account's quota.", "将用此账号的额度发送一条短消息。")
 		acceptLabel = tr("Send message", "发送消息")
+	} else if deleteAccount {
+		detail = tr("Saved sign-ins and account records will be deleted.", "将删除保存的登录资料、用量和账单记录。")
+		acceptLabel = tr("Delete forever", "彻底删除")
 	}
 	p.text(detail, quotaRect{x + 18, textY, width - 36, 24}, 0, qmInk, false)
+	if deleteAccount {
+		p.text(tr("Includes backups and this account's Claude Code sign-in.", "同时清除备份和此账号的 Claude Code 登录。"), quotaRect{x + 18, textY + 25, width - 36, 24}, 1, qmMuted, false)
+		p.text(tr("Cannot be undone. Chats and exported files are kept.", "无法撤销；聊天记录和已导出的文件会保留。"), quotaRect{x + 18, textY + 50, width - 36, 24}, 1, qmMuted, false)
+	}
 	if startSession {
 		p.text(tr("The current Claude Desktop account stays signed in.", "当前 Claude 桌面账号可以继续使用。"), quotaRect{x + 18, textY + 25, width - 36, 24}, 1, qmMuted, false)
 	}
@@ -118,6 +135,9 @@ func (p *qmPainter) confirmation(o *quotaMenuOverlay) {
 	p.centeredText(tr("Cancel", "取消"), cancel, 0, qmInk)
 	w.addHit(quotaMenuHit{Rect: cancel, Dismiss: true}, false)
 	color := uint32(qmBlue)
+	if deleteAccount {
+		color = qmRed
+	}
 	if w.view.Busy {
 		color = qmMuted
 	} else {

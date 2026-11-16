@@ -36,6 +36,7 @@ type accountTransferAccount struct {
 	Name  string `json:"name"`
 	Email string `json:"email"`
 	Plan  string `json:"plan"`
+	Note  string `json:"note,omitempty"`
 }
 
 func (s *switcher) exportAccount(uuid, destination string) error {
@@ -58,7 +59,7 @@ func (s *switcher) exportAccount(uuid, destination string) error {
 	if account == nil || destination == "" {
 		return errors.New(tr("Account export was cancelled", "已取消账号导出"))
 	}
-	if !validTransferAccount(accountTransferAccount{UUID: account.UUID, Org: account.Org, Name: account.Name, Email: account.Email, Plan: account.Plan}) {
+	if !validTransferAccount(accountTransferAccount{UUID: account.UUID, Org: account.Org, Name: account.Name, Email: account.Email, Plan: account.Plan, Note: account.Note}) {
 		return errors.New(tr("Invalid account identity", "账号标识无效"))
 	}
 	if !strings.EqualFold(filepath.Ext(destination), ".cas-account") {
@@ -77,7 +78,7 @@ func (s *switcher) exportAccount(uuid, destination string) error {
 	}
 	manifest := accountTransferManifest{
 		Format: accountTransferFormat, Version: accountTransferVersion,
-		Account: accountTransferAccount{UUID: account.UUID, Org: account.Org, Name: account.Name, Email: account.Email, Plan: account.Plan},
+		Account: accountTransferAccount{UUID: account.UUID, Org: account.Org, Name: account.Name, Email: account.Email, Plan: account.Plan, Note: account.Note},
 		Auth:    map[string]json.RawMessage{},
 	}
 	for _, key := range authKeys {
@@ -344,7 +345,7 @@ func (s *switcher) importAccount(source string) (*Account, error) {
 		}
 	}
 
-	account := &Account{UUID: manifest.Account.UUID, Org: manifest.Account.Org, Name: manifest.Account.Name, Email: manifest.Account.Email, Plan: manifest.Account.Plan}
+	account := &Account{UUID: manifest.Account.UUID, Org: manifest.Account.Org, Name: manifest.Account.Name, Email: manifest.Account.Email, Plan: manifest.Account.Plan, Note: manifest.Account.Note}
 	if err := s.commitImportedAccount(account, stage); err != nil {
 		return nil, err
 	}
@@ -462,7 +463,7 @@ func validTransferAccount(a accountTransferAccount) bool {
 	if device == "CON" || device == "PRN" || device == "AUX" || device == "NUL" || len(device) == 4 && (strings.HasPrefix(device, "COM") || strings.HasPrefix(device, "LPT")) && device[3] >= '1' && device[3] <= '9' {
 		return false
 	}
-	return len(a.Org) <= 512 && len(a.Name) <= 512 && len(a.Email) <= 512 && len(a.Plan) <= 128
+	return len(a.Org) <= 512 && len(a.Name) <= 512 && len(a.Email) <= 512 && len(a.Plan) <= 128 && validAccountNote(a.Note)
 }
 
 func transformCookieValues(path string, transform func([]byte) ([]byte, error)) error {
@@ -559,7 +560,7 @@ func transformCookieValues(path string, transform func([]byte) ([]byte, error)) 
 }
 
 func (s *switcher) commitImportedAccount(account *Account, stagedProfile string) error {
-	if !validTransferAccount(accountTransferAccount{UUID: account.UUID, Org: account.Org, Name: account.Name, Email: account.Email, Plan: account.Plan}) {
+	if !validTransferAccount(accountTransferAccount{UUID: account.UUID, Org: account.Org, Name: account.Name, Email: account.Email, Plan: account.Plan, Note: account.Note}) {
 		return errors.New(tr("Invalid account identity", "账号标识无效"))
 	}
 	profile := s.profileDir(account.UUID)

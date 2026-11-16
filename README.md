@@ -1,5 +1,7 @@
 **Chinese maintenance fork:** Download the default-Chinese Windows executable from [50kg's releases](https://github.com/50kg/claude-account-switcher/releases/latest). Its update menu opens this fork's download page for manual updates; it does not install upstream binaries or check upstream releases in the background. Quit the previous switcher before opening the replacement. The automatic updater and winget instructions below describe standard upstream builds.
 
+The [0.3.6.24 Chinese release](https://github.com/50kg/claude-account-switcher/releases/tag/zh-CN-0.3.6.24) adds custom account notes and permanent deletion of archived accounts.
+
 <div align="center">
 
 [English](README.md) | [简体中文](README.zh-CN.md)
@@ -42,6 +44,8 @@ Three of those four steps are pure overhead, and the fourth is a guess.
 ## What it does instead
 
 **Keeps every sign-in.** Each account's sign-in is saved when you switch away from it and put back when you switch to it. You type an email code once per account, ever, and not again until Anthropic ends that sign-in.
+
+**Adds your own account notes.** On Windows, choose **… → Edit account note…** on any account, including archived accounts. Save a single line of up to 160 characters; the note appears below the account identity and can be read in full on hover. Clear the input and save to remove it. Notes persist across restarts and are included in single-account `.cas-account` exports.
 
 **Moves one saved account to another computer.** In the Windows fork, use the account row's `…` menu to export that account, then choose **Settings → Import one account** on the other computer. The unencrypted `.cas-account` file contains that account's sign-in and cookies, not chats. Import adds it to the switcher's saved accounts and leaves Claude's current sign-in alone. Close Claude yourself before exporting the account currently in use; the switcher will not close it for you. Temporary cookie files are created in the chosen export folder while the file is prepared and removed when the operation finishes. Store the export privately and delete it after import.
 
@@ -113,6 +117,8 @@ From then on, click an account to switch.
 ## Auto-switch
 
 You can archive an account manually from its account actions menu. Archived accounts leave the main list and appear under **Settings → Archived accounts**; they are skipped as automatic switch targets, but remain available for manual switching, syncing and export. Restore an account from the archived list. Archiving does not sign out or delete its saved data.
+
+On Windows, open an archived account's **… → Permanently delete account…** to remove it after confirmation. This deletes the switcher's saved sign-in, cookies, usage and billing records, its dedicated Claude Code login, and matching switch backups. Copies of its OAuth entries in other saved profiles are also removed while keeping the other accounts' entries. Switch to another account first if this account is currently active. Deletion cannot be undone; Claude's chats and previously exported `.cas-account` files remain on disk.
 
 Two toggles in the menu, both off until you turn them on:
 
