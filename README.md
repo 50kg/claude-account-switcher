@@ -1,6 +1,6 @@
 **Chinese maintenance fork:** Download the default-Chinese Windows executable from [50kg's releases](https://github.com/50kg/claude-account-switcher/releases/latest). Its update menu opens this fork's download page for manual updates; it does not install upstream binaries or check upstream releases in the background. Quit the previous switcher before opening the replacement. The automatic updater and winget instructions below describe standard upstream builds.
 
-The [0.3.6.24 Chinese release](https://github.com/50kg/claude-account-switcher/releases/tag/zh-CN-0.3.6.24) adds custom account notes and permanent deletion of archived accounts.
+The [0.3.6.25 Chinese release](https://github.com/50kg/claude-account-switcher/releases/tag/zh-CN-0.3.6.25) shows custom notes as account headings and includes permanent deletion of archived accounts.
 
 <div align="center">
 
@@ -45,7 +45,7 @@ Three of those four steps are pure overhead, and the fourth is a guess.
 
 **Keeps every sign-in.** Each account's sign-in is saved when you switch away from it and put back when you switch to it. You type an email code once per account, ever, and not again until Anthropic ends that sign-in.
 
-**Adds your own account notes.** On Windows, choose **… → Edit account note…** on any account, including archived accounts. Save a single line of up to 160 characters; the note appears below the account identity and can be read in full on hover. Clear the input and save to remove it. Notes persist across restarts and are included in single-account `.cas-account` exports.
+**Adds your own account notes.** On Windows, choose **… → Edit account note…** on any account, including archived accounts. Save a single line of up to 160 characters; when present, the note replaces the original name in the account heading. Hover to read the full note, original name, plan and email. Accounts without notes show their original names. Clear the input and save to remove the note. Notes persist across restarts and are included in single-account `.cas-account` exports.
 
 **Moves one saved account to another computer.** In the Windows fork, use the account row's `…` menu to export that account, then choose **Settings → Import one account** on the other computer. The unencrypted `.cas-account` file contains that account's sign-in and cookies, not chats. Import adds it to the switcher's saved accounts and leaves Claude's current sign-in alone. Close Claude yourself before exporting the account currently in use; the switcher will not close it for you. Temporary cookie files are created in the chosen export folder while the file is prepared and removed when the operation finishes. Store the export privately and delete it after import.
 

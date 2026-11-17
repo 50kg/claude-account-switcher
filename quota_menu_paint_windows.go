@@ -337,8 +337,14 @@ func (p *qmPainter) account(a quotaMenuAccount, index, y, height int) {
 	if a.Plan != "" {
 		planW = min(100, p.measure(a.Plan, 3)+14)
 	}
-	nameW := min(p.measure(a.Name, 2), max(35, identityWidth-emailW-planW-18))
-	p.text(a.Name, quotaRect{20, y + 9, nameW, 27}, 2, qmInk, false)
+	title := a.Name
+	tooltip := a.Name + "\n" + a.Plan + "\n" + a.Email
+	if a.Note != "" {
+		title = a.Note
+		tooltip = a.Note + "\n" + tooltip
+	}
+	nameW := min(p.measure(title, 2), max(35, identityWidth-emailW-planW-18))
+	p.text(title, quotaRect{20, y + 9, nameW, 27}, 2, qmInk, false)
 	x := 20 + nameW + 9
 	if planW > 0 {
 		foreground, background, border := quotaPlanColors(a.Plan)
@@ -348,7 +354,7 @@ func (p *qmPainter) account(a quotaMenuAccount, index, y, height int) {
 		x += planW + 8
 	}
 	p.text(a.Email, quotaRect{x, y + 9, max(0, leftEnd-x), 27}, 1, qmMuted, false)
-	w.addTooltip(quotaRect{20, y + 7, max(1, leftEnd-20), 31}, a.Name+"\n"+a.Plan+"\n"+a.Email)
+	w.addTooltip(quotaRect{20, y + 7, max(1, leftEnd-20), 31}, tooltip)
 	p.round(actionsRect, 5, qmWhite, 0xd2d9e3)
 	p.centeredText("⋯", actionsRect, 2, qmInk)
 	w.addTooltip(actionsRect, tr("Account actions", "账号操作"))
@@ -370,12 +376,6 @@ func (p *qmPainter) account(a quotaMenuAccount, index, y, height int) {
 		}
 	}
 	qy := y + quotaAccountHeaderHeight
-	if a.Note != "" {
-		note := tr("Note: ", "备注：") + a.Note
-		p.text(note, quotaRect{20, qy - 2, w.width - 40, quotaBillingHeight}, 1, qmMuted, false)
-		w.addTooltip(quotaRect{20, qy - 2, w.width - 40, quotaBillingHeight}, note)
-		qy += quotaBillingHeight
-	}
 	if a.Billing != "" {
 		p.text(a.Billing, quotaRect{20, qy - 2, w.width - 40, quotaBillingHeight}, 1, qmMuted, false)
 		qy += quotaBillingHeight

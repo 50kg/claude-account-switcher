@@ -1,6 +1,6 @@
 **中文版维护分支：** 请到 [50kg 的中文版发布页](https://github.com/50kg/claude-account-switcher/releases/latest)下载默认中文的 Windows 程序。发布包中的“下载中文版更新…”菜单会打开本 Fork 的下载页，供手动更新；不会自动安装上游英文程序，也不会在后台查询上游版本。更新前请先退出旧版切换器，再双击新版。下文自动更新和 winget 说明适用于标准上游构建。
 
-[0.3.6.24 中文正式版](https://github.com/50kg/claude-account-switcher/releases/tag/zh-CN-0.3.6.24)新增账号自定义备注，以及已归档账号的彻底删除功能。
+[0.3.6.25 中文正式版](https://github.com/50kg/claude-account-switcher/releases/tag/zh-CN-0.3.6.25)将自定义备注显示在账号标题位置，并包含已归档账号的彻底删除功能。
 
 <div align="center">
 
@@ -44,7 +44,7 @@
 
 **保留各账号的登录状态。** 切换离开当前账号时保存登录状态，切回来时恢复。每个账号首次添加时需要验证码，之后只要登录凭证仍有效，就无需反复验证。
 
-**为账号添加自定义备注。** Windows 用户可从账号的“⋯ → 编辑自定义备注…”填写最多160个字符的单行备注，普通账号和已归档账号均可使用。保存后备注显示在账号身份下方，较长内容可悬停查看完整文本；清空输入并保存即可移除。备注会在重启后保留，导出单个 `.cas-account` 账号时也会一并迁移。
+**为账号添加自定义备注。** Windows 用户可从账号的“⋯ → 编辑自定义备注…”填写最多160个字符的单行备注，普通账号和已归档账号均可使用。有备注时在账号标题位置显示备注，没有备注时显示原姓名；悬停标题可查看完整备注、原姓名、套餐和邮箱。清空输入并保存即可移除备注。备注会在重启后保留，导出单个 `.cas-account` 账号时也会一并迁移。
 
 **无需切换账号即可启动 5 小时窗口。** 安装最新版 [Windows 原生 Claude Code](https://code.claude.com/docs/en/setup)，首次使用时从目标账号的“⋯ → 为此账号登录 Claude Code”完成官方登录。之后选择“⋯ → 启动 5 小时窗口”，确认后会核对登录账号和组织，再用 Haiku 发送一句短消息并更新该账号的用量。已有窗口时会直接显示重置时间。当前 Claude 桌面账号可以继续使用。
 
@@ -280,7 +280,7 @@ go build -ldflags "-H=windowsgui -s -w -X main.defaultLanguage=zh-CN -X main.man
 为 Windows exe 添加版本信息和应用清单时，可先执行上游构建流程中的资源生成命令，再执行上述编译命令：
 
 ```powershell
-go run github.com/tc-hib/go-winres@v0.3.3 make --arch amd64 --product-version 0.3.6.24 --file-version 0.3.6.24
+go run github.com/tc-hib/go-winres@v0.3.3 make --arch amd64 --product-version 0.3.6.25 --file-version 0.3.6.25
 ```
 
 如需运行额外的真实聊天索引回归检查，可将 `SESSION_INDEX_SAMPLE` 设置为已去重的、离线的 `claude-code-sessions` 目录副本，再运行 `go test ./...`。测试只操作临时副本，不会修改提供的样本。请勿把真实账号数据或聊天索引提交到仓库。

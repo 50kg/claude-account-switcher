@@ -317,9 +317,6 @@ const (
 
 func quotaAccountHeight(a quotaMenuAccount) int {
 	height := quotaAccountHeaderHeight + 4
-	if a.Note != "" {
-		height += quotaBillingHeight
-	}
 	if a.Billing != "" {
 		height += quotaBillingHeight
 	}
