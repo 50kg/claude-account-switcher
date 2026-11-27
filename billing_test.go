@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -39,7 +41,7 @@ func TestBillingFromSavedDesktopSession(t *testing.T) {
 	status := 200
 	queries := 0
 	billingClient = &http.Client{CheckRedirect: old.CheckRedirect, Transport: usageRoundTrip(func(req *http.Request) (*http.Response, error) {
-		if req.URL.Host != "claude.ai" || req.URL.Scheme != "https" || req.Header.Get("Cookie") != "sessionKey=test-session" || req.Header.Get("Authorization") != "" {
+		if req.URL.Host != "api.anthropic.com" || req.URL.Scheme != "https" || req.Header.Get("Cookie") != "sessionKey=test-session" || req.Header.Get("Authorization") != "" {
 			t.Fatal("incorrect destination or credential")
 		}
 		w := httptest.NewRecorder()
@@ -98,10 +100,96 @@ func TestBillingFromSavedDesktopSession(t *testing.T) {
 	if got := row(); got != "暂无会员日期" {
 		t.Fatal(got)
 	}
+	// The calendar day wins over a timestamp that may fall on another local day.
+	body = `{"next_charge_at":"2099-03-05T23:30:00-05:00","next_charge_date":"2099-03-05"}`
+	a.Billing.NextCheck = time.Time{}
+	s.refreshBilling()
+	if got := row(); got != "下次续费：2099-03-05" {
+		t.Fatal(got)
+	}
 	body = `{"status":"active","next_charge_date":null,"plan_ending_at":null,"subscription_details_url":"https://apps.apple.com/account/subscriptions"}`
 	a.Billing.NextCheck = time.Time{}
 	s.refreshBilling()
 	if got := row(); got != "Apple 订阅 · 日期请在 Apple 订阅中查看" {
 		t.Fatal(got)
+	}
+}
+
+// The active account's live cookie store is locked while Claude runs. Without
+// a saved copy, the menu says so instead of reporting a generic failure, and
+// the next start retries it at once.
+func TestBillingSessionLockedWhileClaudeRuns(t *testing.T) {
+	useLanguage(t, "zh-CN")
+	// Keep the test away from a real Claude cookie store on this machine.
+	empty := t.TempDir()
+	for _, v := range []string{"HOME", "USERPROFILE", "LOCALAPPDATA", "APPDATA"} {
+		t.Setenv(v, empty)
+	}
+	s := newSwitcher(t.TempDir())
+	a := Account{UUID: "a", Org: "org"}
+	if _, err := s.webSessionFor(context.Background(), a, "a"); !errors.Is(err, errBillingSessionBusy) {
+		t.Fatalf("active account without a saved copy: %v", err)
+	}
+	if _, err := s.webSessionFor(context.Background(), a, "other"); !errors.Is(err, errBillingSession) || errors.Is(err, errBillingSessionBusy) {
+		t.Fatalf("inactive account without a saved copy: %v", err)
+	}
+	b := &billingInfo{Failed: true, Reason: "busy", NextCheck: time.Now().Add(time.Hour)}
+	if got := b.text(time.Now()); got != "会员日期：切换账号或导入聊天后读取" {
+		t.Fatal(got)
+	}
+	limited := &billingInfo{Failed: true, Reason: "limited", NextCheck: time.Now().Add(time.Hour)}
+	s.st.Accounts = []*Account{{UUID: "a", Org: "org", Billing: b}, {UUID: "b", Org: "org", Billing: limited}}
+	s.mu.Lock()
+	s.saveState()
+	s.mu.Unlock()
+	s = newSwitcher(s.dir)
+	if !s.account("a").Billing.NextCheck.IsZero() || s.account("b").Billing.NextCheck.IsZero() {
+		t.Fatal("start must retry a failed read but keep a rate limit")
+	}
+}
+
+// An account never switched away from has no saved sign-in, but the
+// switcher's own backup from its last restart holds its session.
+func TestBillingSessionFromSwitcherBackup(t *testing.T) {
+	empty := t.TempDir()
+	for _, v := range []string{"HOME", "USERPROFILE", "LOCALAPPDATA", "APPDATA"} {
+		t.Setenv(v, empty)
+	}
+	s := newSwitcher(t.TempDir())
+	backup := func(name, account, session string) {
+		dir := filepath.Join(s.backupsDir(), name)
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		write(t, filepath.Join(dir, "config.json"), `{"lastKnownAccountUuid":"`+account+`","oauth:tokenCacheV2":"x"}`)
+		writeTestSession(t, filepath.Join(dir, "Cookies"), session)
+	}
+	backup("20991231-000000", "other", "other-session") // newest, another account
+	backup("20990102-000000", "a", "newer-session")
+	backup("20990101-000000", "a", "older-session")
+	a := Account{UUID: "a", Org: "org"}
+	if key, err := s.webSessionFor(context.Background(), a, "a"); err != nil || key != "newer-session" {
+		t.Fatalf("session = %q, %v", key, err)
+	}
+	// A saved sign-in, once there, wins over any backup.
+	if err := os.MkdirAll(s.profileDir("a"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeTestSession(t, filepath.Join(s.profileDir("a"), "Cookies"), "saved-session")
+	if key, err := s.webSessionFor(context.Background(), a, "a"); err != nil || key != "saved-session" {
+		t.Fatalf("session = %q, %v", key, err)
+	}
+}
+
+func writeTestSession(t *testing.T, path, value string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE cookies(host_key TEXT, name TEXT, path TEXT, value TEXT, encrypted_value BLOB, expires_utc INTEGER, last_access_utc INTEGER);
+		INSERT INTO cookies VALUES('.claude.ai','sessionKey','/',?,NULL,0,1)`, value); err != nil {
+		t.Fatal(err)
 	}
 }

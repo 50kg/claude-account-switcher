@@ -18,6 +18,8 @@ type quotaMenuPreferences struct {
 	RefreshMinutes int      `json:"refreshMinutes,omitempty"`
 	SortMode       string   `json:"sortMode,omitempty"`
 	AccountOrder   []string `json:"accountOrder,omitempty"`
+	// Empty until the user picks one; the Windows display language decides.
+	Language string `json:"language,omitempty"`
 }
 
 func validQuotaMenuHeight(height int) bool {
@@ -25,6 +27,8 @@ func validQuotaMenuHeight(height int) bool {
 }
 
 var quotaPreferencesMu sync.Mutex
+
+var errInvalidQuotaMenuPreferences = errors.New("invalid interface preferences")
 
 func validRefreshMinutes(minutes int) bool { return minutes >= 0 && minutes <= 1440 }
 
@@ -74,8 +78,8 @@ func readQuotaMenuPreferences(path string) (quotaMenuPreferences, error) {
 		return quotaMenuPreferences{}, err
 	}
 	var p quotaMenuPreferences
-	if len(data) > 1<<20 || json.Unmarshal(data, &p) != nil || !validQuotaMenuHeight(p.Height) || !validRefreshMinutes(p.RefreshMinutes) || !validQuotaMenuSortMode(p.SortMode) || !validQuotaMenuAccountOrder(p.AccountOrder) {
-		return quotaMenuPreferences{}, errors.New(tr("Invalid interface preferences", "界面设置无效"))
+	if len(data) > 1<<20 || json.Unmarshal(data, &p) != nil || !validQuotaMenuHeight(p.Height) || !validRefreshMinutes(p.RefreshMinutes) || !validQuotaMenuSortMode(p.SortMode) || !validQuotaMenuAccountOrder(p.AccountOrder) || !validLanguagePreference(p.Language) {
+		return quotaMenuPreferences{}, fmt.Errorf("%w: %s", errInvalidQuotaMenuPreferences, tr("Invalid interface preferences", "界面设置无效"))
 	}
 	return p, nil
 }
@@ -94,9 +98,20 @@ func saveRefreshMinutes(path string, minutes int) error {
 	return updateQuotaMenuPreferences(path, func(p *quotaMenuPreferences) { p.RefreshMinutes = minutes })
 }
 
+func validLanguagePreference(lang string) bool {
+	return lang == "" || lang == langEnglish || lang == langChinese
+}
+
+func saveLanguagePreference(path, lang string) error {
+	if lang == "" || !validLanguagePreference(lang) {
+		return errors.New(tr("Invalid language", "无效的语言"))
+	}
+	return updateQuotaMenuPreferences(path, func(p *quotaMenuPreferences) { p.Language = lang })
+}
+
 func saveQuotaMenuSortMode(path, mode string) error {
 	if !validQuotaMenuSortMode(mode) || mode == "" {
-		return errors.New(tr("Invalid account order", "无效的账号排序方式"))
+		return errors.New(tr("Invalid sort mode", "无效的账号排序方式"))
 	}
 	return updateQuotaMenuPreferences(path, func(p *quotaMenuPreferences) { p.SortMode = mode })
 }
@@ -118,6 +133,10 @@ func updateQuotaMenuPreferences(path string, update func(*quotaMenuPreferences))
 	quotaPreferencesMu.Lock()
 	defer quotaPreferencesMu.Unlock()
 	p, err := readQuotaMenuPreferences(path)
+	// A damaged file is replaced rather than blocking every later save.
+	if errors.Is(err, errInvalidQuotaMenuPreferences) {
+		p, err = quotaMenuPreferences{}, nil
+	}
 	if err != nil {
 		return err
 	}

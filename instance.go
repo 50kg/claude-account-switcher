@@ -35,8 +35,9 @@ func lockInstance(addr string) (net.Listener, bool) {
 		askToQuitOld()
 		return nil, false
 	}
-	// The old switcher finishes a running switch before it quits.
-	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(200 * time.Millisecond) {
+	// The old switcher finishes a running switch before it quits. Quitting
+	// Claude and asking which stopped chats continue can take two minutes.
+	for deadline := time.Now().Add(3 * time.Minute); time.Now().Before(deadline); time.Sleep(200 * time.Millisecond) {
 		if l, err := net.Listen("tcp", addr); err == nil {
 			return l, true
 		}

@@ -141,6 +141,11 @@ func (m *nativeQuotaMenu) start() bool {
 	<-ready
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.hwnd == 0 && !m.closing && m.ready == ready {
+		// The menu is the only way to reach Settings and Quit: let the next
+		// tray click try to create the window again.
+		m.started = false
+	}
 	return m.hwnd != 0 && !m.closing
 }
 
@@ -298,6 +303,7 @@ type quotaMenuWindow struct {
 	fonts                                                          [4]uintptr
 	hits                                                           []quotaMenuHit
 	focus, hover, pressed                                          int
+	downOverlay                                                    *quotaMenuOverlay // the overlay a press began in
 	scrollDragging                                                 bool
 	scrollDragOffset, wheelRemainder                               int
 	preferredHeight                                                int
@@ -332,7 +338,8 @@ func quotaMenuWindowProc(hwnd, msg, wp, lp uintptr) uintptr {
 		}
 		return 0
 	case qmRefresh:
-		if w.menu.shown.Load() && w.heightDrag == nil {
+		// A drag keeps the rows it started with; the next refresh catches up.
+		if w.menu.shown.Load() && w.heightDrag == nil && w.orderDrag == nil {
 			w.reload(false)
 		}
 		return 0
@@ -371,10 +378,14 @@ func quotaMenuWindowProc(hwnd, msg, wp, lp uintptr) uintptr {
 			w.updateAccountOrderDrag(int(int16(lp&0xffff))*96/w.dpi, int(int16(lp>>16))*96/w.dpi)
 			return 0
 		}
-		w.hover = w.hit(int(int16(lp&0xffff))*96/w.dpi, int(int16(lp>>16))*96/w.dpi)
-		w.invalidate()
+		// Repaint only when the hovered control changes, not on every move.
+		if hover := w.hit(int(int16(lp&0xffff))*96/w.dpi, int(int16(lp>>16))*96/w.dpi); hover != w.hover {
+			w.hover = hover
+			w.invalidate()
+		}
 		return 0
 	case 0x201: // WM_LBUTTONDOWN
+		w.downOverlay = w.overlay
 		x, y := int(int16(lp&0xffff))*96/w.dpi, int(int16(lp>>16))*96/w.dpi
 		if edge := w.heightEdge(x, y); edge != 0 {
 			w.beginHeightDrag(edge, qmPoint{X: int32(int16(lp & 0xffff)), Y: int32(int16(lp >> 16))})
@@ -443,8 +454,16 @@ func quotaMenuWindowProc(hwnd, msg, wp, lp uintptr) uintptr {
 	case 0x203: // WM_LBUTTONDBLCLK
 		if w.heightEdge(int(int16(lp&0xffff))*96/w.dpi, int(int16(lp>>16))*96/w.dpi) != 0 {
 			w.resetHeight()
+			return 0
 		}
-		return 0
+		// CS_DBLCLKS turns the second press of a fast double click into this
+		// message. It counts as a press only where the first click left the
+		// same layer open: never on a confirmation, nor on a popup the first
+		// click just opened, which could otherwise accept it unseen.
+		if w.overlay != w.downOverlay || w.overlay != nil && w.overlay.Kind == "confirm" {
+			return 0
+		}
+		return quotaMenuWindowProc(hwnd, 0x201, wp, lp)
 	case 0x20: // WM_SETCURSOR
 		var p qmPoint
 		qmGetCursorPos.Call(uintptr(unsafe.Pointer(&p)))
@@ -480,9 +499,15 @@ func quotaMenuWindowProc(hwnd, msg, wp, lp uintptr) uintptr {
 		}
 		switch wp {
 		case 27:
-			if w.overlay != nil {
+			// Escape cancels a drag in place, as it does for the height edge.
+			switch {
+			case w.orderDrag != nil:
+				w.finishAccountOrderDrag(false)
+			case w.scrollDragging:
+				w.stopScrollDrag()
+			case w.overlay != nil:
 				w.closeOverlay()
-			} else {
+			default:
 				w.hide()
 			}
 		case 9, 38, 40:
@@ -667,8 +692,7 @@ func (w *quotaMenuWindow) reload(show bool) {
 		}
 	}
 	w.invalidate()
-	// Synchronous first paint: no HTML, animation frame or child process can
-	// keep a successfully created menu hidden.
+	// Synchronous first paint, so a created menu never shows up blank.
 	qmUpdateWindow.Call(w.hwnd)
 	w.positionNoteEdit()
 }
@@ -758,13 +782,13 @@ func (w *quotaMenuWindow) activate(hit quotaMenuHit) {
 	}
 	a := hit.Action
 	if a.Kind == "archived-view" {
-		w.archivedView = true
+		w.archivedView, w.scroll = true, 0
 		w.closeOverlay()
 		w.reload(false)
 		return
 	}
 	if a.Kind == "accounts-view" {
-		w.archivedView = false
+		w.archivedView, w.scroll = false, 0
 		w.closeOverlay()
 		w.reload(false)
 		return
@@ -786,7 +810,7 @@ func (w *quotaMenuWindow) activate(hit quotaMenuHit) {
 		w.invalidate()
 		return
 	}
-	keepOpen := a.Kind == "auto" || a.Kind == "spend" || a.Kind == "threshold" || a.Kind == "autostart" || a.Kind == "sync" || a.Kind == "sort" || a.Kind == "session-start" || a.Kind == "account-delete"
+	keepOpen := a.Kind == "auto" || a.Kind == "spend" || a.Kind == "threshold" || a.Kind == "autostart" || a.Kind == "sync" || a.Kind == "sort" || a.Kind == "language" || a.Kind == "session-start" || a.Kind == "account-delete"
 	w.closeOverlay()
 	if !keepOpen {
 		w.hide()
@@ -808,14 +832,12 @@ func (w *quotaMenuWindow) choices(kind string) []quotaMenuChoice {
 		if w.view.Syncing {
 			syncLabel = tr("Syncing usage…", "正在同步用量…")
 		}
-		title, _ := updateMenuText(w.view.Update)
-		if title == "" {
-			title = tr("Check for updates", "检查更新")
-		}
+		title := updateMenuText(w.view.Update)
 		choices := []quotaMenuChoice{
 			{Label: tr("Use expiring weekly allowance", "优先使用即将重置的周额度"), Checked: w.view.Spend, Action: quotaMenuAction{Kind: "spend", Enabled: !w.view.Spend}},
 			{Label: tr("Start at login", "开机启动"), Checked: w.view.Startup, Action: quotaMenuAction{Kind: "autostart", Enabled: !w.view.Startup}},
 			{Label: refreshIntervalText(w.view.RefreshMinutes), Popup: "interval"},
+			{Label: tr("Language: ", "语言：") + languageLabel(currentLanguage()), Popup: "language"},
 		}
 		choices = append(choices,
 			quotaMenuChoice{Separator: true},
@@ -827,6 +849,13 @@ func (w *quotaMenuWindow) choices(kind string) []quotaMenuChoice {
 			quotaMenuChoice{Label: title, Action: quotaMenuAction{Kind: "update"}},
 		)
 		return choices
+	case "language":
+		// Each name is written in its own language, so either UI can find it.
+		var choices []quotaMenuChoice
+		for _, lang := range []string{langChinese, langEnglish} {
+			choices = append(choices, quotaMenuChoice{Label: languageLabel(lang), Checked: currentLanguage() == lang, Action: quotaMenuAction{Kind: "language", Language: lang}})
+		}
+		return choices
 	case "sort":
 		return []quotaMenuChoice{
 			{Label: tr("Manual · drag to reorder", "手动排序（拖动调整）"), Checked: w.view.SortMode != "reset", Disabled: w.orderSaving, Action: quotaMenuAction{Kind: "sort", SortMode: "manual"}},
@@ -834,7 +863,7 @@ func (w *quotaMenuWindow) choices(kind string) []quotaMenuChoice {
 		}
 	case "account-actions":
 		name := tr("this account", "此账号")
-		billingAction := tr("Verify subscription date on Claude…", "通过网页核验会员日期…")
+		billingAction := tr("Refresh subscription date…", "刷新会员日期…")
 		archived := false
 		for _, accounts := range [][]quotaMenuAccount{w.view.Accounts, w.view.ArchivedAccounts} {
 			for _, account := range accounts {

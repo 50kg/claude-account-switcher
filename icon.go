@@ -5,9 +5,7 @@ import (
 	"encoding/binary"
 	"image"
 	"image/color"
-	"image/png"
 	"math"
-	"runtime"
 )
 
 // The tray icon is a ring that fills with the active account's session usage
@@ -33,15 +31,9 @@ func usageColor(pct, threshold float64) color.RGBA {
 	return colorOK
 }
 
-// trayIcon returns the icon in the format the platform tray expects.
+// trayIcon returns the icon as the ICO file the Windows tray expects.
 func trayIcon(pct, threshold float64) []byte {
-	img := drawIcon(pct, threshold)
-	if runtime.GOOS == "windows" {
-		return encodeICO(img)
-	}
-	var buf bytes.Buffer
-	_ = png.Encode(&buf, img)
-	return buf.Bytes()
+	return encodeICO(drawIcon(pct, threshold))
 }
 
 // drawIcon draws the ring. pct < 0 means usage is unknown.

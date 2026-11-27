@@ -92,7 +92,7 @@ func (w *quotaMenuWindow) noteMessage(msg qmMessage) bool {
 	case 13:
 		w.submitNote()
 	case 9:
-		w.focus = 1 // Cancel; Shift+Tab starts at Save.
+		w.focus = 0 // Clear, Cancel, Save in order; Shift+Tab starts at Save.
 		if shift, _, _ := qmKeyState.Call(16); shift&0x8000 != 0 {
 			w.focus = 2
 		}

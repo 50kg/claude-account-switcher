@@ -1,6 +1,8 @@
 name: build
 
-# Builds release binaries on version tags and by hand. Tests run in test.yml.
+# Builds the Windows exe on version tags (v1.2.3) and by hand with build.ps1,
+# and publishes it with its checksum and license notices. The tag must match
+# `const version` in main.go: the in-app updater compares the two.
 on:
   push:
     tags: ["v*"]
@@ -11,51 +13,33 @@ permissions:
 
 jobs:
   build:
-    strategy:
-      matrix:
-        include:
-          - os: windows-latest
-            out: claude-account-switcher-windows-amd64.exe
-            flags: -H=windowsgui -s -w
-          - os: macos-latest
-            out: claude-account-switcher-macos
-            flags: -s -w
-    runs-on: ${{ matrix.os }}
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - run: go vet ./...
-      - run: go test ./...
-      # Version info and a manifest make an unsigned exe look less like
-      # malware to Windows Defender's machine learning.
-      - name: Windows resources
-        if: runner.os == 'Windows'
+      - name: Check the tag against main.go
+        if: startsWith(github.ref, 'refs/tags/')
         shell: bash
         run: |
           v=$(sed -n 's/^const version = "\(.*\)"/\1/p' main.go)
-          go run github.com/tc-hib/go-winres@v0.3.3 make --arch amd64 --product-version "$v.0" --file-version "$v.0"
-      - name: Build
-        shell: bash
-        run: |
-          mkdir -p dist
-          if [ "$RUNNER_OS" = macOS ]; then
-            CGO_ENABLED=1 GOARCH=arm64 go build -ldflags "${{ matrix.flags }}" -o dist/arm64 .
-            CGO_ENABLED=1 GOARCH=amd64 go build -ldflags "${{ matrix.flags }}" -o dist/amd64 .
-            lipo -create -output "dist/${{ matrix.out }}" dist/arm64 dist/amd64
-            rm dist/arm64 dist/amd64
-          else
-            go build -ldflags "${{ matrix.flags }}" -o "dist/${{ matrix.out }}" .
+          if [ "$GITHUB_REF_NAME" != "v$v" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match version $v in main.go"
+            exit 1
           fi
-          cd dist && { sha256sum "${{ matrix.out }}" 2>/dev/null || shasum -a 256 "${{ matrix.out }}"; } > "${{ matrix.out }}.sha256"
+      - name: Vet, test and build
+        shell: pwsh
+        run: ./build.ps1
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.out }}
-          path: dist/${{ matrix.out }}*
+          name: claude-account-switcher-windows-amd64
+          path: dist/*
       - name: Release
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" --generate-notes 2>/dev/null || true; gh release upload "$GITHUB_REF_NAME" "dist/${{ matrix.out }}" "dist/${{ matrix.out }}.sha256" --clobber
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes
+          gh release upload "$GITHUB_REF_NAME" dist/claude-account-switcher-windows-amd64.exe dist/claude-account-switcher-windows-amd64.exe.sha256 dist/THIRD_PARTY_NOTICES.txt --clobber

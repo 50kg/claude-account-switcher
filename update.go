@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -20,12 +19,14 @@ import (
 )
 
 const (
-	repoURL = "https://github.com/SnlperStripes/claude-account-switcher"
+	repoURL = "https://github.com/50kg/claude-account-switcher"
 	// GitHub is asked for the latest release at most this often.
 	updateEvery = 24 * time.Hour
+	// The one file each release carries for this program, next to its .sha256.
+	releaseAsset = "claude-account-switcher-windows-amd64.exe"
 )
 
-var latestAPI = "https://api.github.com/repos/SnlperStripes/claude-account-switcher/releases/latest"
+var latestAPI = "https://api.github.com/repos/50kg/claude-account-switcher/releases/latest"
 
 // latestRelease asks GitHub for the version of the latest release, like "0.3.0".
 // Nothing about the user or their accounts goes along.
@@ -91,19 +92,22 @@ func newerVersion(a, b string) bool {
 // checkUpdate asks GitHub for the latest release when the check is on and
 // the last answer is a day old. A failed check is tried again next time.
 func (s *switcher) checkUpdate(ctx context.Context) {
-	if manualUpdateURL != "" {
-		return
-	}
 	s.mu.Lock()
 	due := !s.st.NoUpdateCheck && time.Since(s.st.UpdateChecked) >= updateEvery
 	s.mu.Unlock()
 	if !due {
 		return
 	}
+	if _, err := s.fetchLatest(ctx); err != nil {
+		log.Printf("update check: %v", err)
+	}
+}
+
+// fetchLatest asks GitHub now and remembers the answer.
+func (s *switcher) fetchLatest(ctx context.Context) (string, error) {
 	v, err := latestRelease(ctx)
 	if err != nil {
-		log.Printf("update check: %v", err)
-		return
+		return "", err
 	}
 	if newerVersion(v, version) {
 		log.Printf("version %s is available", v)
@@ -113,6 +117,37 @@ func (s *switcher) checkUpdate(ctx context.Context) {
 	s.saveState()
 	s.mu.Unlock()
 	s.onChange()
+	return v, nil
+}
+
+// updateMenuText is the Settings entry: an offer once a newer release is
+// known, otherwise a plain check.
+func updateMenuText(v string) string {
+	if v != "" {
+		return fmt.Sprintf(tr("Version %s is out, click to update", "发现新版本 %s，点击更新"), v)
+	}
+	return tr("Check for updates", "检查更新")
+}
+
+// requestUpdate is the Settings click. It installs a release already known
+// to be newer; otherwise it asks GitHub at once, even with the daily check
+// off, and installs what it finds.
+func (s *switcher) requestUpdate(ctx context.Context) {
+	v := s.snapshot().Update
+	if v == "" {
+		s.setStatus(tr("Checking for updates…", "正在检查更新…"))
+		latest, err := s.fetchLatest(ctx)
+		switch {
+		case err != nil:
+			s.setStatus(tr("Update check failed: ", "检查更新失败：") + err.Error())
+			return
+		case !newerVersion(latest, version):
+			s.setStatus(fmt.Sprintf(tr("Version %s is the latest", "当前版本 %s 已是最新"), version))
+			return
+		}
+		v = latest
+	}
+	s.installUpdate(ctx, v)
 }
 
 var (
@@ -121,25 +156,11 @@ var (
 	updating    atomic.Bool
 )
 
-// releaseAsset is the name of this platform's file in a release.
-func releaseAsset() string {
-	switch runtime.GOOS {
-	case "windows":
-		return "claude-account-switcher-windows-amd64.exe"
-	case "darwin":
-		return "claude-account-switcher-macos"
-	}
-	return ""
-}
-
 // installUpdate puts version v in place of the running file and starts it,
 // and the new process then asks this one to quit. A file the switcher
-// downloads itself carries no mark of the web, so SmartScreen and Gatekeeper
-// stay quiet. When that does not work, the download page opens instead.
+// downloads itself carries no mark of the web, so SmartScreen stays quiet.
+// When that does not work, the download page opens instead.
 func (s *switcher) installUpdate(ctx context.Context, v string) {
-	if manualUpdateURL != "" {
-		return
-	}
 	if !updating.CompareAndSwap(false, true) {
 		return
 	}
@@ -174,14 +195,10 @@ func (s *switcher) installUpdate(ctx context.Context, v string) {
 	s.setStatus(fmt.Sprintf(tr("Starting version %s…", "正在启动版本 %s…"), v))
 }
 
-// fetchRelease downloads this platform's file of version v and checks it
-// against the checksum published next to it.
+// fetchRelease downloads the exe of version v and checks it against the
+// checksum published next to it.
 func fetchRelease(ctx context.Context, v string) ([]byte, error) {
-	asset := releaseAsset()
-	if asset == "" {
-		return nil, errors.New(tr("no release build for this platform", "当前平台没有可用的发布版本"))
-	}
-	url := releasesURL + "/download/v" + v + "/" + asset
+	url := releasesURL + "/download/v" + v + "/" + releaseAsset
 	bin, err := download(ctx, url, 64<<20)
 	if err != nil {
 		return nil, err

@@ -66,7 +66,8 @@ func (s *switcher) queryAccountUsage(ctx context.Context, uuid, active string) (
 	return u, err
 }
 
-// Manual sync only queries known accounts. It does not inspect chat files,
+// Manual sync queries every known account, archived ones included: only the
+// automatic schedule sets those aside. It does not inspect chat files,
 // discover sign-ins, import chats, restart Claude or run automatic switching.
 // A test query can replace the credential/network boundary entirely.
 func (s *switcher) syncUsageNowWith(ctx context.Context, query func(context.Context, string, string) (*Usage, error)) error {

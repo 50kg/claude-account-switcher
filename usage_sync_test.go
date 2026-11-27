@@ -234,3 +234,67 @@ func TestIntervalSaveFailureKeepsCurrentSetting(t *testing.T) {
 		t.Fatal("failed interval save changed active setting")
 	}
 }
+
+// Archived accounts are set aside by the schedule and the subscription
+// refresh; a manual sync still refreshes them.
+func TestArchivedAccountsAreNotQueried(t *testing.T) {
+	s := newSwitcher(t.TempDir())
+	s.st.Accounts = []*Account{{UUID: "kept", Org: "o"}, {UUID: "archived", Org: "o", Archived: true}}
+	now := time.Now()
+	s.mu.Lock()
+	jobs := s.usageJobs("", now)
+	s.mu.Unlock()
+	if len(jobs) != 1 || jobs[0].uuid != "kept" {
+		t.Fatalf("scheduled %+v", jobs)
+	}
+	var queried []string
+	err := s.syncUsageNowWith(context.Background(), func(_ context.Context, id, _ string) (*Usage, error) {
+		queried = append(queried, id)
+		return &Usage{CheckedAt: now}, nil
+	})
+	if err != nil || len(queried) != 2 {
+		t.Fatalf("manual sync queried %v, %v", queried, err)
+	}
+	s.refreshBilling()
+	if s.account("archived").Billing != nil {
+		t.Fatal("subscription date queried for an archived account")
+	}
+	// After the manual sync, only the account Claude is signed in with is
+	// due again on its short schedule, even though it is archived.
+	later := now.Add(activeEvery + time.Second)
+	s.mu.Lock()
+	jobs = s.usageJobs("archived", later)
+	s.mu.Unlock()
+	if len(jobs) != 1 || jobs[0].uuid != "archived" {
+		t.Fatalf("active archived account not scheduled: %+v", jobs)
+	}
+	// Once restored it is on the ordinary schedule again.
+	later = now.Add(idleEvery + time.Second)
+	s.mu.Lock()
+	jobs = s.usageJobs("", later)
+	restoredDue := len(jobs)
+	s.account("archived").Archived = false
+	jobs = s.usageJobs("", later)
+	s.mu.Unlock()
+	if restoredDue != 1 || len(jobs) != 2 {
+		t.Fatalf("archived %d, restored %d jobs", restoredDue, len(jobs))
+	}
+}
+
+// With a longer auto-sync interval, usage that arrives on schedule must not
+// show as last known in between; the default keeps the 15-minute window.
+func TestUsageFreshnessFollowsSyncInterval(t *testing.T) {
+	now := time.Now()
+	s := newSwitcher(t.TempDir())
+	s.st.Accounts = []*Account{{UUID: "a", Usage: &Usage{CheckedAt: now.Add(-20 * time.Minute)}}}
+	if freshModelUsage(s.snapshot().Accounts[0], now) {
+		t.Fatal("20-minute-old usage counted as fresh in smart mode")
+	}
+	s.refreshMinutes = 30
+	if !freshModelUsage(s.snapshot().Accounts[0], now) {
+		t.Fatal("on-schedule usage greyed out with a 30-minute interval")
+	}
+	if makeQuotaMenuView(s.snapshot(), false, now).Accounts[0].Stale {
+		t.Fatal("menu row marked stale")
+	}
+}

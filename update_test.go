@@ -35,7 +35,6 @@ func TestNewerVersion(t *testing.T) {
 }
 
 func TestCheckUpdate(t *testing.T) {
-	useManualUpdates(t, "")
 	tag, calls := "v99.0.0", 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
@@ -83,13 +82,13 @@ func TestCheckUpdate(t *testing.T) {
 func TestFetchRelease(t *testing.T) {
 	bin := []byte("new switcher")
 	sum := sha256.Sum256(bin)
-	good := hex.EncodeToString(sum[:]) + "  " + releaseAsset() + "\n"
+	good := hex.EncodeToString(sum[:]) + "  " + releaseAsset + "\n"
 	sha := good
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/download/v9.9.9/" + releaseAsset():
+		case "/download/v9.9.9/" + releaseAsset:
 			w.Write(bin)
-		case "/download/v9.9.9/" + releaseAsset() + ".sha256":
+		case "/download/v9.9.9/" + releaseAsset + ".sha256":
 			w.Write([]byte(sha))
 		default:
 			http.NotFound(w, r)
@@ -98,15 +97,11 @@ func TestFetchRelease(t *testing.T) {
 	defer srv.Close()
 	defer func(old string) { releasesURL = old }(releasesURL)
 	releasesURL = srv.URL
-	if releaseAsset() == "" {
-		t.Skip("no release build for this platform")
-	}
-
 	got, err := fetchRelease(context.Background(), "9.9.9")
 	if err != nil || string(got) != string(bin) {
 		t.Fatalf("fetchRelease = %q, %v", got, err)
 	}
-	sha = strings.Repeat("0", 64) + "  " + releaseAsset() + "\n"
+	sha = strings.Repeat("0", 64) + "  " + releaseAsset + "\n"
 	if _, err := fetchRelease(context.Background(), "9.9.9"); err == nil {
 		t.Fatal("accepted a download that does not match its checksum")
 	}
@@ -136,5 +131,31 @@ func TestReplaceExe(t *testing.T) {
 	restoreExe(exe)
 	if got, _ := os.ReadFile(exe); string(got) != "old" {
 		t.Fatalf("exe = %q after restoring", got)
+	}
+}
+
+// The Settings click checks at once, even with the daily check off, and
+// reports an up-to-date version instead of doing nothing.
+func TestRequestUpdateChecksNow(t *testing.T) {
+	useLanguage(t, "en")
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Write([]byte(`{"tag_name":"v` + version + `"}`))
+	}))
+	defer srv.Close()
+	defer func(old string) { latestAPI = old }(latestAPI)
+	latestAPI = srv.URL
+	s := &switcher{dir: t.TempDir(), onChange: func() {}}
+	s.st.NoUpdateCheck = true
+	s.requestUpdate(context.Background())
+	if calls != 1 || s.snapshot().Status != "Version "+version+" is the latest" {
+		t.Fatalf("%d checks, status %q", calls, s.snapshot().Status)
+	}
+	if got := updateMenuText(""); got != "Check for updates" {
+		t.Fatal(got)
+	}
+	if got := updateMenuText("9.9.9"); got != "Version 9.9.9 is out, click to update" {
+		t.Fatal(got)
 	}
 }

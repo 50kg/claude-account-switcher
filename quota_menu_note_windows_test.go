@@ -62,7 +62,7 @@ func verifyNativeAccountNotes(t *testing.T, f *quotaMenuFixture) {
 	if dir := os.Getenv("QUOTA_MENU_DELETE_EVIDENCE"); dir != "" {
 		nativeMenuDo(t, m, func(w *quotaMenuWindow) {
 			w.overlay.Error = ""
-			if err := w.capture(filepath.Join(dir, language+"-note-editor.png")); err != nil {
+			if err := w.capture(filepath.Join(dir, currentLanguage()+"-note-editor.png")); err != nil {
 				t.Error(err)
 			}
 		})
@@ -76,7 +76,7 @@ func verifyNativeAccountNotes(t *testing.T, f *quotaMenuFixture) {
 	})
 	if dir := os.Getenv("QUOTA_MENU_DELETE_EVIDENCE"); dir != "" {
 		nativeMenuDo(t, m, func(w *quotaMenuWindow) {
-			if err := w.capture(filepath.Join(dir, language+"-note-saved.png")); err != nil {
+			if err := w.capture(filepath.Join(dir, currentLanguage()+"-note-saved.png")); err != nil {
 				t.Error(err)
 			}
 		})

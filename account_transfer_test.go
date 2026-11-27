@@ -1,5 +1,3 @@
-//go:build windows
-
 package main
 
 import (
@@ -253,5 +251,27 @@ func TestAccountTransferExportFailureCleansWorkingFiles(t *testing.T) {
 	}
 	if work, err := filepath.Glob(filepath.Join(root, ".claude-account-export-*")); err != nil || len(work) != 0 {
 		t.Fatal("failed export left temporary credential files")
+	}
+}
+
+// Both IDs become folder names, so an imported file may not pick a path.
+func TestAccountTransferRejectsPathLikeIDs(t *testing.T) {
+	for _, a := range []accountTransferAccount{
+		{UUID: "a", Org: `..\..\..`},
+		{UUID: "a", Org: "../x"},
+		{UUID: "a", Org: "org/x"},
+		{UUID: "a", Org: "NUL"},
+		{UUID: "..", Org: "org"},
+		{UUID: "COM1", Org: "org"},
+		{UUID: "", Org: "org"},
+	} {
+		if validTransferAccount(a) {
+			t.Fatalf("accepted %+v", a)
+		}
+	}
+	for _, a := range []accountTransferAccount{{UUID: "a"}, {UUID: "858f7ece-c90e-4149", Org: "410d2980-ed90_4550"}} {
+		if !validTransferAccount(a) {
+			t.Fatalf("rejected %+v", a)
+		}
 	}
 }

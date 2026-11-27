@@ -1,29 +1,25 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
 
 func useLanguage(t *testing.T, value string) {
 	t.Helper()
-	old := language
-	t.Cleanup(func() { language = old })
+	old := currentLanguage()
+	t.Cleanup(func() { _ = setLanguage(old) })
 	if err := setLanguage(value); err != nil {
 		t.Fatal(err)
 	}
 }
 
+// Tests start in English; only Settings or ui.json changes the language.
 func TestDefaultLanguage(t *testing.T) {
-	if language != defaultLanguage {
-		t.Fatalf("initial language %q does not match build default %q", language, defaultLanguage)
-	}
-	want := "English"
-	if defaultLanguage == "zh-CN" {
-		want = "中文"
-	}
-	if got := tr("English", "中文"); got != want {
-		t.Fatalf("build default selected %q, want %q", got, want)
+	if currentLanguage() != langEnglish || tr("English", "中文") != "English" {
+		t.Fatalf("tests must start in English, got %q", currentLanguage())
 	}
 }
 
@@ -40,7 +36,7 @@ func TestLanguageSelection(t *testing.T) {
 	if tr("Add account", "添加账号") != "Add account" {
 		t.Fatal("English was not restored")
 	}
-	if setLanguage("unsupported") == nil || language != "en" {
+	if setLanguage("unsupported") == nil || currentLanguage() != langEnglish {
 		t.Fatal("invalid language must fail without changing the selection")
 	}
 }
@@ -102,5 +98,36 @@ func TestAutoNoteChinese(t *testing.T) {
 	s.st.LastSwitch = now.Add(-noteFor - time.Minute)
 	if got := s.autoNote(now); got != "" {
 		t.Fatalf("note still shown after %s: %q", noteFor, got)
+	}
+}
+
+func TestStartLanguage(t *testing.T) {
+	useLanguage(t, "en")
+	// A new install starts in the Windows language and keeps it, even once
+	// its own state.json exists.
+	dir := t.TempDir()
+	want := systemLanguage()
+	if got := startLanguage(dir); got != want {
+		t.Fatalf("new install = %q, want %q", got, want)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "state.json"), []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := startLanguage(dir); got != want {
+		t.Fatalf("second start = %q, want %q", got, want)
+	}
+	// A data folder from before 1.0 has state.json but no saved language.
+	old := t.TempDir()
+	if err := os.WriteFile(filepath.Join(old, "state.json"), []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := startLanguage(old); got != langChinese {
+		t.Fatalf("upgrade from a Chinese build = %q", got)
+	}
+	if err := saveLanguagePreference(filepath.Join(old, "ui.json"), langEnglish); err != nil {
+		t.Fatal(err)
+	}
+	if got := startLanguage(old); got != langEnglish {
+		t.Fatalf("saved choice ignored: %q", got)
 	}
 }

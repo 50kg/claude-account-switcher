@@ -16,12 +16,9 @@ var (
 	qmEndPaint      = user32.NewProc("EndPaint")
 	qmFillRect      = user32.NewProc("FillRect")
 	qmDrawText      = user32.NewProc("DrawTextW")
-	qmGetDC         = user32.NewProc("GetDC")
-	qmReleaseDC     = user32.NewProc("ReleaseDC")
 	qmCreateDC      = qmGDI.NewProc("CreateCompatibleDC")
 	qmDeleteDC      = qmGDI.NewProc("DeleteDC")
 	qmCreateBitmap  = qmGDI.NewProc("CreateCompatibleBitmap")
-	qmCreateDIB     = qmGDI.NewProc("CreateDIBSection")
 	qmDeleteObject  = qmGDI.NewProc("DeleteObject")
 	qmSelectObject  = qmGDI.NewProc("SelectObject")
 	qmBitBlt        = qmGDI.NewProc("BitBlt")
@@ -38,7 +35,6 @@ var (
 	qmSaveDC        = qmGDI.NewProc("SaveDC")
 	qmRestoreDC     = qmGDI.NewProc("RestoreDC")
 	qmIntersectClip = qmGDI.NewProc("IntersectClipRect")
-	qmFlush         = qmGDI.NewProc("GdiFlush")
 )
 
 const (
@@ -226,7 +222,7 @@ func (w *quotaMenuWindow) draw(dc uintptr) {
 	updated := tr("Waiting for usage", "等待用量更新")
 	shownAccounts := w.visibleAccounts()
 	if !w.view.Updated.IsZero() {
-		updated = fmt.Sprintf(tr("%d accounts · %s", "%d个账号 · %s 更新"), len(shownAccounts), w.view.Updated.Local().Format("15:04"))
+		updated = fmt.Sprintf(tr("%d accounts · updated %s", "%d个账号 · %s 更新"), len(shownAccounts), w.view.Updated.Local().Format("15:04"))
 	}
 	if w.view.Syncing {
 		updated = tr("Syncing usage…", "正在同步用量…")
@@ -317,7 +313,7 @@ func (p *qmPainter) account(a quotaMenuAccount, index, y, height int) {
 	p.fill(quotaRect{1, y, w.width - 2, height}, bg)
 	p.fill(quotaRect{1, y + height - 1, w.width - 2, 1}, qmLine)
 	buttonW := 88
-	if language != "zh-CN" {
+	if !chinese.Load() {
 		buttonW = 102
 	}
 	buttonRect := quotaRect{w.width - 20 - buttonW, y + 9, buttonW, 27}
@@ -522,9 +518,9 @@ func (p *qmPainter) footerIcon(i, x, y int) {
 	}
 }
 
-func languageOffset(english, chinese int) int {
-	if language == "zh-CN" {
-		return chinese
+func languageOffset(english, zh int) int {
+	if chinese.Load() {
+		return zh
 	}
 	return english
 }

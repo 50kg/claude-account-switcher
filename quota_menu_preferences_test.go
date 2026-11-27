@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -38,7 +39,7 @@ func TestQuotaMenuHeightRoundTripOnlyWritesUIPreference(t *testing.T) {
 func TestQuotaMenuHeightRejectsInvalidAndHandlesWriteFailure(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "ui.json")
-	for _, data := range []string{`{`, `{"menuHeight":-1}`, `{"menuHeight":1}`, `{"menuHeight":999999}`, strings.Repeat(" ", 4097)} {
+	for _, data := range []string{`{`, `{"menuHeight":-1}`, `{"menuHeight":1}`, `{"menuHeight":999999}`, oversizedQuotaMenuPreferences()} {
 		if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -48,6 +49,13 @@ func TestQuotaMenuHeightRejectsInvalidAndHandlesWriteFailure(t *testing.T) {
 	}
 	if err := saveQuotaMenuHeight(path, -1); err == nil {
 		t.Fatal("invalid height was saved")
+	}
+	// A damaged file must not block later saves.
+	if err := saveQuotaMenuHeight(path, 520); err != nil {
+		t.Fatalf("damaged preferences blocked a save: %v", err)
+	}
+	if height, err := loadQuotaMenuHeight(path); err != nil || height != 520 {
+		t.Fatalf("recovered preference = %d, %v", height, err)
 	}
 	// A regular file cannot be used as the parent directory.
 	blocked := filepath.Join(dir, "blocked")
@@ -60,4 +68,13 @@ func TestQuotaMenuHeightRejectsInvalidAndHandlesWriteFailure(t *testing.T) {
 	if data, _ := os.ReadFile(blocked); string(data) != "keep" {
 		t.Fatal("failed preference write changed an unrelated file")
 	}
+}
+
+// Valid in every field, only larger than the 1 MiB read limit.
+func oversizedQuotaMenuPreferences() string {
+	ids := make([]string, 8192)
+	for i := range ids {
+		ids[i] = fmt.Sprintf(`"%0128d"`, i)
+	}
+	return `{"menuHeight":520,"accountOrder":[` + strings.Join(ids, ",") + `]}`
 }

@@ -31,8 +31,8 @@ func editAppleBillingNote(s *switcher, a Account) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
-	in, _ := json.Marshal(appleDateForm{a.label() + " · " + a.Email, language, a.AppleDate})
-	cmd := exec.CommandContext(ctx, exe, "-apple-date")
+	in, _ := json.Marshal(appleDateForm{a.label() + " · " + a.Email, currentLanguage(), a.AppleDate})
+	cmd := exec.CommandContext(ctx, exe, appleDateFlag)
 	cmd.Stdin = bytes.NewReader(in)
 	data, err := cmd.Output()
 	if err != nil {

@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Claude Account Switcher">
-  <g transform="translate(64 64)">
-    <circle r="46" fill="none" stroke="#8E8E93" stroke-opacity="0.45" stroke-width="16"/>
-    <circle r="46" fill="none" stroke="#34C759" stroke-width="16" pathLength="100" stroke-dasharray="42 100" transform="rotate(-90)"/>
-    <circle r="15" fill="#34C759"/>
-  </g>
-</svg>

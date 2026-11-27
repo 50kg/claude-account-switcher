@@ -99,8 +99,12 @@ func modelWarning(percent float64) string {
 }
 
 func freshModelUsage(a Account, now time.Time) bool {
+	window := a.freshFor
+	if window <= 0 {
+		window = idleFresh
+	}
 	return a.Usage != nil && a.Problem == "" && !a.Usage.CheckedAt.IsZero() &&
-		now.Sub(a.Usage.CheckedAt) <= idleFresh
+		now.Sub(a.Usage.CheckedAt) <= window
 }
 
 func modelWeeklyText(model ModelWeeklyUsage, warning bool, now time.Time) string {
@@ -134,7 +138,7 @@ func modelWeeklyNotice(a Account, now time.Time) string {
 
 // Keep remaining allowance readable in Windows' bounded tray tooltip.
 // This formatter only uses the cached account snapshot, without a window.
-func accountTooltip(a Account, _ float64, now time.Time) string {
+func accountTooltip(a Account, now time.Time) string {
 	fresh := freshModelUsage(a, now)
 	parts := []string{tr("5h —", "5小时 —"), tr("Total week —", "总周 —")}
 	var empty, low string
@@ -190,7 +194,7 @@ func compactRemainingText(a Account, now time.Time) string {
 	}
 	u := a.Usage.current(now)
 	parts := []string{fmt.Sprintf(tr("5h left %s", "5小时余%s"), remainingPercentText(u.Session)),
-		fmt.Sprintf(tr("week left %s", "总周余%s"), remainingPercentText(u.Weekly))}
+		fmt.Sprintf(tr("total week left %s", "总周余%s"), remainingPercentText(u.Weekly))}
 	for _, model := range u.ModelWeekly {
 		parts = append(parts, fmt.Sprintf(tr("%s left %s", "%s余%s"), model.Name, remainingPercentText(model.Percent)))
 	}

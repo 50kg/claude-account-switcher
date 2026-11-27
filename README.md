@@ -1,333 +1,152 @@
-**Chinese maintenance fork:** Download the default-Chinese Windows executable from [50kg's releases](https://github.com/50kg/claude-account-switcher/releases/latest). Its update menu opens this fork's download page for manual updates; it does not install upstream binaries or check upstream releases in the background. Quit the previous switcher before opening the replacement. The automatic updater and winget instructions below describe standard upstream builds.
-
-The [0.3.6.25 Chinese release](https://github.com/50kg/claude-account-switcher/releases/tag/zh-CN-0.3.6.25) shows custom notes as account headings and includes permanent deletion of archived accounts.
-
 <div align="center">
 
-[English](README.md) | [简体中文](README.zh-CN.md)
+**简体中文** | [English](README.en.md)
 
-<img src="assets/banner.svg" width="880" alt="Claude Account Switcher: switch the Claude desktop app between accounts. No email code, your chats come along.">
+<img src="assets/mark.svg" width="96" alt="">
 
-[![Latest release](https://img.shields.io/github/v/release/50kg/claude-account-switcher)](https://github.com/50kg/claude-account-switcher/releases/latest)
-[![Downloads](https://img.shields.io/github/downloads/50kg/claude-account-switcher/total)](https://github.com/50kg/claude-account-switcher/releases)
-[![Tests](https://github.com/50kg/claude-account-switcher/actions/workflows/test.yml/badge.svg)](https://github.com/50kg/claude-account-switcher/actions/workflows/test.yml)
-[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
-![Windows | macOS](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey)
+# Claude 账号切换器
 
-**Hit your limit on one Claude account, keep working on the next one. One click, no email code.**
+[![最新版本](https://img.shields.io/github/v/release/50kg/claude-account-switcher)](https://github.com/50kg/claude-account-switcher/releases/latest)
+[![下载次数](https://img.shields.io/github/downloads/50kg/claude-account-switcher/total)](https://github.com/50kg/claude-account-switcher/releases)
+[![测试](https://github.com/50kg/claude-account-switcher/actions/workflows/test.yml/badge.svg)](https://github.com/50kg/claude-account-switcher/actions/workflows/test.yml)
+[![许可证：Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
+![Windows 10/11](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-lightgrey)
 
-A tray tool for the Claude desktop app. It swaps the signed-in account in about ten seconds,
-carries your Claude Code chats across, and shows the live usage of every account you own.
+**一个 Claude 账号的额度用完了，就切到下一个继续工作。一键切换，不用反复收邮箱验证码。**
 
-**Your sign-ins stay on your machine by default.** Tokens stay encrypted exactly as Claude stored them and are only sent to `api.anthropic.com`. The Windows maintenance fork also has an optional, user-initiated account export. Its `.cas-account` file is deliberately unencrypted and contains login credentials; anyone with the file may use that account.
+[![下载 Windows 版](https://img.shields.io/badge/Windows-.exe-2ea44f?style=for-the-badge)](https://github.com/50kg/claude-account-switcher/releases/latest/download/claude-account-switcher-windows-amd64.exe)
 
-[![Download for Windows](https://img.shields.io/badge/Download_for_Windows-.exe-2ea44f?style=for-the-badge)](https://github.com/50kg/claude-account-switcher/releases/latest/download/claude-account-switcher-windows-amd64-zh-CN.exe)
-[![Download for macOS](https://img.shields.io/badge/Download_for_macOS-universal-555555?style=for-the-badge)](https://github.com/SnlperStripes/claude-account-switcher/releases/latest/download/claude-account-switcher-macos)
-
-Unofficial. Not affiliated with or endorsed by Anthropic.
+非官方工具，与 Anthropic 无隶属关系，也未获其认可。
 
 </div>
 
----
+Claude 账号切换器是 Windows 上 Claude 桌面应用的托盘工具：约十秒切换登录账号，把 Claude Code 聊天列表带到新账号，并在一个菜单里显示所有账号的用量、重置时间和会员日期。
 
-## The problem
+## 功能
 
-You have two Claude accounts because one runs out. Switching between them in the desktop app goes like this:
+- **保留每个账号的登录。** 切走时保存，切回时恢复。每个账号只在首次添加时输一次验证码，之后只要 Anthropic 没有结束这次登录，就不用再输。
+- **一个菜单看全部额度。** 左键或右键点击托盘图标，打开同一个原生菜单：每个账号的 5 小时额度、本周总额度，以及 Fable 等模型的独立周额度（接口提供时），显示已用百分比、进度条和重置时间。75% 起为橙色、100% 起为红色；过期或查询失败的数据灰显，并标为"上次用量"。套餐标签按 Claude 显示的名称区分 Pro、Max、Ultra。
+- **先确认再切换。** 查看菜单不会切换账号；点击账号右侧的"切换账号"并确认重启 Claude 后才执行。
+- **聊天和项目随账号走。** Claude 启动前，目标账号的 Claude Code 侧栏会对齐刚切出账号的列表，项目分组一并同步。
+- **继续被切换打断的聊天。** 切换时正在回复或运行工具的聊天会列在一个小窗口里，勾选的由 Claude 在新账号下接着做。
+- **会员日期。** 显示每个账号的会员到期日或下次续费日；Apple（App Store）订阅可以手动记录。
+- **可选的自动切换。** 当前账号接近额度上限时切到余量最多的账号；另一个开关优先用掉即将重置的周额度。两者默认关闭。
+- **不切换也能开启 5 小时窗口。** 借助官方 Claude Code，用目标账号发送一条 Haiku 短消息，当前桌面账号照常使用。
+- **备注、归档、彻底删除。** 自定义备注（最多 160 字）显示在账号标题位置；不常用的账号可以归档；已归档账号可以彻底删除。
+- **单账号迁移。** 把一个账号导出为 `.cas-account` 文件，在另一台电脑上导入。
+- **中英双语。** 同一个 exe，在"设置 → 语言 / Language"中切换。
 
-1. **Sign out.** That throws the sign-in away. Next time you need it, you start from zero.
-2. **Sign in with the other address and wait for the email code.** With a private relay address, that means opening another app to find it.
-3. **Find your work.** Claude files Claude Code chats per account, so the chat you were in the middle of is gone from the sidebar. The conversation still exists on disk; the app just does not list it.
-4. **Guess** which account has room left, because usage only shows for the one you are signed in to.
+## 下载与安装
 
-Three of those four steps are pure overhead, and the fourth is a guess.
+需要 Windows 10 或 11，以及 Claude 桌面版（Microsoft Store 版或官网直接下载版均可）。
 
-## What it does instead
+1. 从 [Releases](https://github.com/50kg/claude-account-switcher/releases/latest) 下载 `claude-account-switcher-windows-amd64.exe`，放到任意文件夹直接运行。无需安装，也无需运行时。
+2. 程序没有主窗口，图标在任务栏右下角的托盘区（可能在隐藏图标里）。
+3. 在"设置"中打开"开机启动"。
 
-**Keeps every sign-in.** Each account's sign-in is saved when you switch away from it and put back when you switch to it. You type an email code once per account, ever, and not again until Anthropic ends that sign-in.
+exe 没有代码签名，首次运行时 SmartScreen 可能提示"Windows 已保护你的电脑"：点击"更多信息"，再点"仍要运行"。每个发布文件旁都有对应的 `.sha256`，可以用 `Get-FileHash` 核对。
 
-**Adds your own account notes.** On Windows, choose **… → Edit account note…** on any account, including archived accounts. Save a single line of up to 160 characters; when present, the note replaces the original name in the account heading. Hover to read the full note, original name, plan and email. Accounts without notes show their original names. Clear the input and save to remove the note. Notes persist across restarts and are included in single-account `.cas-account` exports.
+**语言。** 首次运行时跟随 Windows 显示语言（中文显示为简体中文，其他为 English）。从 1.0 之前的版本升级时保持简体中文。之后可在"设置 → 语言 / Language"中切换，选择保存在 `ui.json`。
 
-**Moves one saved account to another computer.** In the Windows fork, use the account row's `…` menu to export that account, then choose **Settings → Import one account** on the other computer. The unencrypted `.cas-account` file contains that account's sign-in and cookies, not chats. Import adds it to the switcher's saved accounts and leaves Claude's current sign-in alone. Close Claude yourself before exporting the account currently in use; the switcher will not close it for you. Temporary cookie files are created in the chosen export folder while the file is prepared and removed when the operation finishes. Store the export privately and delete it after import.
+**升级。** 切换器每天检查一次新版本，有新版时菜单顶部会提示，在"设置"中点击即可更新：自动下载、核对发布的 SHA-256、替换文件并以新版本重启；失败时打开发布页。"设置 → 检查更新"可以立即检查。也可以手动下载新 exe 直接启动，它会让正在运行的旧版退出。账号和设置都在数据文件夹里，升级不受影响。
 
-**Shows quotas before switching.** On Windows, either mouse button opens the same native custom tray menu, with names, plans and emails on one line. Account rows alternate white and light grey backgrounds; Pro, Max and Ultra use blue, purple and gold plan badges. Plan badges use Claude's displayed plan name and saved accounts recheck it daily, so an Ultra account remains labeled Ultra when its organization type still says Max. Reset times follow their quota titles. All accounts stay expanded; reading an identity or quota never switches accounts. The separate Switch button asks before restarting Claude. macOS keeps its existing system menu. Other Claude settings remain unchanged.
+## 使用
 
-**Shows subscription dates for each account.** The tray displays the end of paid access, or the next renewal when Claude supplies it. App Store dates are managed by Apple: in the Windows account menu (…), choose **View or record Apple subscription date**, check the purchasing Apple Account’s subscriptions, then save the renewal or end date as a local manual note. These notes never roll forward automatically. For Claude web subscriptions, the switcher checks every six hours; if a web verification is required, use the account menu to open a separate verification window. Dates are accepted only after the account and organization match. A failed query is distinguished from an absent date and any prior date is marked as last known.
+### 首次使用
 
-**Brings your current chat list along.** Before Claude starts, the switcher uses the account you just left as the source for the local Claude Code sidebar. It adds missing chats, restores matching archived chats, and archives extra entries in the target account. Projects come along too, so chats stay grouped in them.
+1. 先在 Claude 中登录，再启动切换器。它会在一分钟内识别当前账号。
+2. 点击菜单底部的"添加账号"并确认。Claude 会重启到登录页，原账号的登录已经保存。
+3. 登录第二个账号。切换器登记后会提示，但不会自动导入聊天；需要合并各账号的聊天时，选择"设置 → 导入所有账号的聊天…"（会重启 Claude）。
 
-**Starts a 5-hour window without switching.** Install the latest [native Claude Code for Windows](https://code.claude.com/docs/en/setup). From the target account’s menu (…), choose **Sign in to Claude Code for this account** once and complete the official sign-in. Then choose **Start 5-hour window** and confirm. The switcher verifies the account and organization, sends one short Haiku prompt and updates usage for that account. If a window is already active, it displays the reset time. You can keep using the current Claude Desktop account.
-
-**Picks up where Claude stopped.** A switch restarts Claude, and a chat that was working at that moment would just stand still. The switcher notices which chats were in the middle of a reply and asks in a small window which of them should go on. Claude then continues the checked ones on the new account by itself.
-
-**Shows allowance and reset times for every account.** The Windows tray menu displays used percentages and used-allowance bars and reset times for each five-hour, total-weekly and available model-weekly cap. Rows omit remaining percentages, limit/low badges and share-of-total-week hints; bar colors remain. The title no longer has a ring icon. Accounts stay expanded without a collapse control. The current account is first by default; choose manual mode from **Account order** in the top header and drag the dotted handle beside an account to reorder it, or sort the other accounts by their soonest upcoming reset while keeping the current account first. Other accounts with no upcoming reset time appear last. The list has a maximum height; wheel input, a draggable scrollbar, track clicks, Page Up/Down and Home/End keep every account reachable while the header and footer stay fixed. Drag the top or bottom edge to adjust height, double-click either edge to restore the default, or press Escape during a drag to cancel. The menu remembers the chosen logical height and clamps it to the current display’s work area. Stale or failed readings are grey and labelled as last known. An elapsed reset awaiting confirmation does not invent a fresh full balance. Hovering the tray icon still shows a compact tooltip. The tray ring keeps its original rules.
-
-The custom menu uses native Windows drawing, with no WebView or additional process. Opening or browsing it only reads cached presentation data; restarting operations require explicit confirmation. Escape, another tray click or an outside click dismisses it. Long identities have native tooltips. The bottom toolbar contains Add account, Settings and Quit. Settings groups preferences (expiring-weekly selection and Start at login) and tools (Sync usage now, Import one account, Import chats, Open data folder and Check for updates), plus an editable auto-sync interval with a separator and no nested submenu. Auto-switch and its threshold appear only once, on the main menu. Settings, threshold choices and restart confirmations use the same custom style. Escape or clicking the parent outside a submenu closes only that layer; confirmation defaults to Cancel. Reset times use the computer’s local time without a timezone badge. Height, sync interval and account order preferences are saved separately in `ui.json` in the switcher data directory; account state, sign-ins and chats are not involved.
-
-`go test ./...` does not open this UI. On Windows, explicitly set `QUOTA_MENU_NATIVE_SMOKE=1` and run `go test -run '^TestNativeQuotaMenuSmoke$' -count=3 -v .` for an isolated native test host with synthetic accounts. It never starts the switcher main flow or loads real credentials. `QUOTA_MENU_EVIDENCE` optionally selects a directory for screenshots of the test menu itself.
-
-**Separates model weekly caps.** When the usage response includes caps such as Fable, the account menu shows the remaining percentage of each model's own weekly allowance separately from the total week. A model using 41% of the total week with a 50% cap has used 82% of its own allowance, leaving 18%. Model names and values come from the existing usage request; accounts without model data show only the two standard counters. At 75% used, the current account's tooltip says "running low"; at 100% it says "limit reached", naming the affected quota. The Windows model rows show warning labels alongside their usage and reset information; system menus on other platforms retain the read-only warning row. Alerts use fresh successful data. Model caps do not change automatic switching, expiring-weekly selection, polling frequency or the tray ring.
-
-**Can switch on its own.** Off by default. Turn it on and the switcher moves Claude to the account with the most room left once the active one passes 96% (or 90, 94, 98, your choice). A second toggle moves it to an account whose weekly limit is about to reset mostly unused, so that usage is not lost.
-
-## Measured
-
-The first real run, on Windows 11 with the Microsoft Store version of Claude, from the switcher's own log:
-
-| Step | Time |
-| --- | --- |
-| Add a second account, including typing its email code | 44 s |
-| Detect the new sign-in, import the missing chats, restart Claude | 9 s |
-| Switch accounts, from the click until Claude starts again | 9 s |
-| Round trip of Claude's real `config.json` through the switcher | byte-identical |
-
-## Install
-
-Download the file for your platform and run it. No installer, no runtime, one file.
-
-- **Windows 10/11:** [`claude-account-switcher-windows-amd64-zh-CN.exe`](https://github.com/50kg/claude-account-switcher/releases/latest/download/claude-account-switcher-windows-amd64-zh-CN.exe). Works with the Microsoft Store app and the direct download. Or install the standard upstream build with winget and start it with `claude-account-switcher`:
-  ```
-  winget install SnlperStripes.ClaudeAccountSwitcher
-  ```
-- **macOS:** [`claude-account-switcher-macos`](https://github.com/SnlperStripes/claude-account-switcher/releases/latest/download/claude-account-switcher-macos) (universal). The first start asks once whether it may read "Claude Safe Storage" from your keychain; that is the key Claude uses to encrypt its sign-in. Builds in CI, not yet tested on a real Mac. Reports welcome.
-- **Linux:** there is no official Claude desktop app, so there is nothing to switch.
-
-Then turn on **Start at login** in its menu.
-
-The builds are not code-signed, so the first start gets one warning:
-
-- **Windows:** SmartScreen says "Windows protected your PC". Click **More info**, then **Run anyway**.
-- **macOS:** the download is not executable yet and Gatekeeper blocks it. Run this once in the folder you saved it to:
-  ```bash
-  chmod +x claude-account-switcher-macos && xattr -d com.apple.quarantine claude-account-switcher-macos
-  ```
-
-Every download has a `.sha256` file next to it, so you can check it is the file CI built.
-
-## First run
-
-1. Start the switcher while you are signed in to Claude. It picks up that account within a minute.
-2. Choose **Add account…**. Claude restarts on its sign-in screen. Your first account is kept.
-3. Sign in with the second account. The switcher registers it and shows a notice without restarting Claude. When you want to merge other accounts' chat entries, select **Settings → Import chats from all accounts** in the Windows tray menu (or the import command in the system menu on other platforms). Importing restarts Claude. Ordinary switches follow the sidebar of the account you are leaving.
-
-From then on, click an account to switch.
+之后点击账号右侧的"切换账号"即可。
 
 > [!IMPORTANT]
-> **Never use Sign out in Claude to change accounts.** Signing out can end that sign-in on Anthropic's side, and the switcher's saved copy may stop working. Use **Add account…** when you actually need to save a new sign-in. A failure to query usage alone does not establish that Claude's desktop session has signed out.
+> **不要用 Claude 里的"退出登录"来换账号。** 退出登录可能让 Anthropic 结束这次登录，切换器保存的副本也会随之失效。需要保存新的登录时，请用"添加账号"。用量查询失败本身并不说明桌面端已经退出登录。
 
-## Auto-switch
+### 菜单一览
 
-You can archive an account manually from its account actions menu. Archived accounts leave the main list and appear under **Settings → Archived accounts**; they are skipped as automatic switch targets, but remain available for manual switching, syncing and export. Restore an account from the archived list. Archiving does not sign out or delete its saved data.
-
-On Windows, open an archived account's **… → Permanently delete account…** to remove it after confirmation. This deletes the switcher's saved sign-in, cookies, usage and billing records, its dedicated Claude Code login, and matching switch backups. Copies of its OAuth entries in other saved profiles are also removed while keeping the other accounts' entries. Switch to another account first if this account is currently active. Deletion cannot be undone; Claude's chats and previously exported `.cas-account` files remain on disk.
-
-Two toggles in the menu, both off until you turn them on:
-
-- **Auto-switch** moves Claude to the account with the most room left once the active one is nearly full.
-- **Auto-switch to use up expiring weekly** moves Claude to an account whose weekly limit resets soon with most of it unused, so that usage is not lost.
-
-A switch restarts Claude. A reply that is being written at that moment stops, and Claude picks it up again on the other account, see [Chats that were working](#chats-that-were-working).
-
-Anthropic's terms do not forbid having more than one account. They do forbid "bypassing any of our systems or protective measures". Whether automatic switching fits how you use your accounts is your call, which is why both toggles are off until you turn them on.
-
-<details>
-<summary><b>When Auto-switch acts</b></summary>
-
-&nbsp;
-
-All of these have to hold before the switcher acts:
-
-| Rule | Why |
+| 位置 | 内容 |
 | --- | --- |
-| The active account is at or above the threshold, 5-hour or weekly | 96% by default, so the switch lands before a reply gets cut off at 100% |
-| Another account is at least 10 points below the threshold | No bouncing onto an account that is nearly full too |
-| The active account was checked in the last 5 minutes, the other one in the last 15 | No decisions on stale numbers |
-| The last switch was more than 10 minutes ago | No ping-pong |
-| Claude is running | It never starts Claude behind your back |
+| 顶部 | "账号排序"：手动排序（拖动账号左侧的点阵）或按最近重置时间（当前账号置顶）。拖动菜单上下边缘可调整高度，双击边缘恢复默认 |
+| 账号行 | 名称或备注、套餐、邮箱、各项额度和重置时间；"切换账号"按钮；"⋯"账号操作 |
+| 账号"⋯" | 编辑自定义备注… · 启动 5 小时窗口… · 为此账号登录 Claude Code… · 刷新会员日期…（Apple 订阅为"查看或记录 Apple 订阅日期…"）· 导出（明文）… · 归档账号。已归档账号另有"恢复到账号列表"和"彻底删除账号…" |
+| 底部 | 自动切换开关和阈值；添加账号 · 设置 · 退出 |
+| 设置 | 优先使用即将重置的周额度 · 开机启动 · 自动同步间隔 · 语言 / Language · 已归档账号 · 导入单个账号… · 立即同步用量 · 导入所有账号的聊天… · 打开数据文件夹 · 检查更新 |
 
-</details>
+切换、添加账号和导入聊天都会重启 Claude，执行前都要确认，确认框默认选中"取消"。按 Esc、再次点击托盘图标或点击菜单外部可收起菜单。
 
-<details>
-<summary><b>When Auto-switch to use up expiring weekly acts</b></summary>
+"启动 5 小时窗口"需要先安装 [Windows 原生 Claude Code](https://code.claude.com/docs/en/setup)，并在该账号的"⋯ → 为此账号登录 Claude Code…"中完成一次官方登录。启动前会核对账号和组织；已有窗口时直接显示重置时间。
 
-&nbsp;
+### 自动切换
 
-Weekly usage you do not spend before the reset is gone. With this on, the switcher moves Claude to another account when all of these hold:
+两个开关默认都关闭：
 
-| Rule | Why |
+- **自动切换**（菜单底部）：当前账号的 5 小时或本周用量达到阈值（默认 96%，可选 90%、94%、98%）时，切到余量最多的账号。条件是：目标账号两项用量都比阈值低至少 10 个百分点；当前账号 5 分钟内、目标账号 15 分钟内查询过；距上次切换超过 10 分钟；Claude 正在运行。
+- **优先使用即将重置的周额度**（设置）：某个账号的周额度将在 24 小时内重置、且已用不超过 50% 时，切过去把它用掉。最近 5 小时内手动切换过，或最近 15 分钟内有 Claude Code 聊天活动时不会触发。
+
+已归档账号不会成为自动切换的目标。每次自动切换后，菜单顶部会在 12 小时内说明原因。Anthropic 的条款不禁止拥有多个账号，但禁止"绕过任何系统或保护措施"；自动切换是否适合你的用法，请自行判断。
+
+### 被切换打断的聊天
+
+切换需要关闭 Claude，正在回复或运行工具的 Claude Code 聊天会停下。Claude 重新启动前，切换器会列出这些聊天（默认全选）：点"继续"，Claude 会在新账号下自行接着处理勾选的聊天；点"不继续"、按 Esc 或关闭窗口则保持原样；30 秒无人操作则全部继续，动过复选框后倒计时停止。
+
+## 工作原理
+
+- **登录切换。** Claude 把登录保存在数据目录的 `config.json`（`oauth:tokenCacheV2`、`oauth:tokenCache`、`lastKnownAccountUuid` 三项）和 Cookie 库 `Network\Cookies` 中。数据目录：Store 版为 `%LOCALAPPDATA%\Claude-Data\claude_<id>`（旧版为 `%LOCALAPPDATA%\Packages\Claude_<id>\LocalCache\Roaming\Claude`），直接下载版为 `%APPDATA%\Claude`。切换时，切换器像 Windows 注销那样通知 Claude 退出（20 秒后仍未退出才强制结束），保存旧账号的这两部分、放回新账号的，再启动 Claude。其他设置一概不动。每次切换前备份 `config.json` 和 Cookie，保留最近 10 份；任何一步失败都会还原备份，并在菜单顶部报错。
+- **聊天与项目。** Claude 按账号和组织在 `claude-code-sessions` 中保存 Claude Code 聊天列表，在 `local-agent-mode-sessions\…\spaces.json` 中保存项目。切换时，目标账号的列表按会话 ID 对齐刚切出的账号：补上缺少的、恢复应显示的、把多出来的归档（不删除），删除标记也一并带过去；项目只增不删。聊天正文在 `~\.claude\projects` 中由所有账号共享，切换器只读取最近 30 分钟写入的聊天末尾，判断哪些聊天正在进行，从不写入。继续聊天用的是 Claude 自己的退出标记 `interruptedByQuitAt`。
+- **用量。** 已保存的 Token 用 Claude 自己的 DPAPI 密钥在内存中解密，再向 `api.anthropic.com` 查询账号资料和用量（与 Claude、Claude Code 使用的接口相同）。默认智能同步：当前账号每 2 分钟一次，达到 85% 后每分钟一次，其他账号每 10 分钟一次；"设置 → 自动同步"可改为所有账号统一 1–1440 分钟，保存在 `ui.json`。"立即同步用量"刷新所有账号（包括已归档账号），并跳过仍在等待重试的账号。收到 `429` 时按服务器要求等待（没有给出时逐步退避，最长 30 分钟），期间显示上次数据。查询失败不代表桌面端已退出登录，切换器也不会刷新或改写 Claude 的凭证。
+- **会员日期。** 每 6 小时用各账号保存的 Claude 桌面网页会话从 `api.anthropic.com` 读取一次（claude.ai/api 对非浏览器客户端有 Cloudflare 浏览器验证）。"⋯ → 刷新会员日期…"立即查询，只有直接查询无法完成时才打开 claude.ai 核验窗口。账号和组织核对一致后才采用日期；查询失败和账单未提供日期会分开提示，旧日期标为"上次查询"。Claude 运行时会锁定当前账号的 Cookie 库；从未切走过、还没有保存登录的账号，改用切换器上次重启 Claude 时自动做的备份。连备份都没有时，切换账号或导入聊天一次后即可读取。Apple（App Store）订阅在 Claude 的账单里没有日期：在"⋯ → 查看或记录 Apple 订阅日期…"中打开 Apple 订阅页核对后手动记录，手动记录不会自动顺延。
+- **已归档账号。** 不再自动查询用量和会员日期，但"立即同步用量"仍会刷新它们；恢复后继续自动查询。Claude 当前登录的账号即使已归档也照常查询。已归档账号仍可切换、导出、编辑备注和彻底删除。
+- **Store 版路径重定向。** 从 Store 版 Claude 内部启动的程序（例如 Claude Code 终端）看到的是重定向后的 AppData。切换器会识别这种情况，通过资源管理器重新启动自己，以便访问真实文件，并且不随 Claude 一起退出。
+
+## 数据与隐私
+
+| 项目 | 说明 |
 | --- | --- |
-| The other account's weekly limit resets within 24 hours | That is the usage about to be lost |
-| It has used 50% of its week or less | Worth a restart only when a good part is left |
-| It is at least 10 points below the threshold, 5-hour included | It can actually take work right now |
-| The active account is not in the same spot itself, resetting within 24 hours at 50% or less | Its own unused week counts just as much |
-| You did not switch by hand in the last 5 hours | Your own pick wins |
-| No Claude Code chat was active in the last 15 minutes | This switch is never urgent, so it waits instead of cutting off a reply |
+| 数据文件夹 | `%USERPROFILE%\.claude-account-switcher`（"设置 → 打开数据文件夹"）：`state.json`（账号和状态）、`ui.json`（语言、菜单高度、同步间隔、排序）、`accounts\`（各账号保存的登录和 Cookie）、`backups\`（切换前的备份）、`session-code\`（各账号专用的 Claude Code 登录）、`webview\`（对话窗口的 WebView2 配置）、`switcher.log`（日志） |
+| Token | 保持 Claude 原有的加密形式，只发送到 `api.anthropic.com`，不写入日志 |
+| 网页会话 Cookie | 只发送到 `api.anthropic.com`（直接查询会员日期），或在你打开的核验窗口中发送到 `claude.ai` |
+| 联网 | `api.anthropic.com`：账号资料、用量、会员日期。`claude.ai`：仅在可选的会员日期核验窗口中。`api.github.com`：每天一次查询最新版本号，不附带账号信息。`github.com`：仅在你点击更新时下载。"启动 5 小时窗口"调用你安装的官方 Claude Code |
+| 关闭更新检查 | 退出切换器，在 `state.json` 中加入 `"noUpdateCheck": true`，再启动 |
+| `.cas-account` 导出 | 唯一的明文例外：文件不加密，包含该账号的登录和 Cookie（不含聊天），拿到文件的人就能使用该账号。导入只新增账号档案，不改变 Claude 当前登录。导出正在使用的账号前请先手动关闭 Claude。请私密保存，导入后删除 |
+| 删除账号 | 先归档，再选"⋯ → 彻底删除账号…"并确认。会删除保存的登录、Cookie、用量和账单记录、该账号的 Claude Code 登录和相关备份；当前账号要先切走。聊天和已导出的文件保留，删除无法撤销 |
+| 卸载 | 关闭"开机启动"，退出，删除 exe 和数据文件夹 |
 
-The freshness, cooldown and "Claude is running" rules above apply too. When several accounts qualify, the one that resets first wins. With both toggles on, being nearly full comes first: the account with the most room wins over the one that resets first.
+## 命令行
 
-Once it has moved to an account, it keeps using that week until the reset, even after more than half of it is used. If that account's 5-hour limit fills up and the normal auto-switch moves away, it comes back once the 5-hour window resets. Switching by hand ends this.
-
-After any automatic switch, from either toggle, the top of the menu says why for 12 hours, for example "Auto-switched at 03:12 to use up this account's week before it resets 18:00".
-
-</details>
-
-## Chats that were working
-
-Claude has to quit for a switch, so every Claude Code chat that is writing a reply or running a tool stops. Before Claude starts again, a window lists those chats:
-
-<img src="assets/resume-dialog.png" width="462" alt="The window that asks which stopped chats continue: three chats with title and project folder, all checked, a countdown bar, and the buttons Don't continue and Continue 3 chats">
-
-- Each chat shows its title and project folder, all checked.
-- **Continue** lets Claude carry on with the checked ones. **Don't continue**, Escape or closing the window leaves all of them where they stopped.
-- Nobody answering means all of them go on after 30 seconds, so an automatic switch at night does not leave work standing. Touching a checkbox stops the countdown.
-
-When Claude is back, it sends each checked chat "The app was quit while you were working. Please continue from where you left off." and the chat goes on in the account you switched to. That is Claude's own way of continuing after a restart; the switcher only tells it which chats to continue.
-
-<details>
-<summary><b>How the switcher knows which chats were working</b></summary>
-
-&nbsp;
-
-Right before Claude quits, the switcher reads the end of every Claude Code conversation written to in the last 30 minutes. A chat counts as working when its last message is a prompt or tool result Claude has not answered yet, or a tool call. A finished reply or a reply you stopped yourself does not count.
-
-For each chat you keep checked, the switcher writes the mark Claude itself leaves when it quits during a reply (`interruptedByQuitAt`) into that chat's entry of the account you switch to, and removes the mark from the other accounts' copies, so the chat is not continued twice. Claude continues marked chats for 24 hours after the restart; a chat it cannot reach in that time simply stays where it stopped.
-
-On Windows the window is drawn with WebView2, which comes with Windows 11 and current Windows 10. Without it, a plain Windows dialog asks the same question. On macOS it uses WebKit; like the rest of the macOS build, this has not been tested on a real Mac yet.
-
-</details>
-
-## How it works
-
-The switcher saves and restores the sign-in of each account, copies the chat list and projects between accounts, and reads usage from `api.anthropic.com`. It backs up Claude's files before every switch and leaves the rest of Claude's settings alone.
-
-<details>
-<summary><b>Which files, and what happens to them</b></summary>
-
-&nbsp;
-
-Claude keeps its sign-in in two places inside its data folder:
-
-| Platform | Data folder |
-| --- | --- |
-| Windows, Microsoft Store app | `%LOCALAPPDATA%\Claude-Data\claude_<id>` since 2.42304, before that `%LOCALAPPDATA%\Packages\Claude_<id>\LocalCache\Roaming\Claude` |
-| Windows, direct download | `%APPDATA%\Claude` |
-| macOS | `~/Library/Application Support/Claude` |
-
-| What | Where | What the switcher does with it |
-| --- | --- | --- |
-| Sign-in tokens | `config.json`: `oauth:tokenCacheV2`, `oauth:tokenCache`, `lastKnownAccountUuid` | Saves and restores these three entries, leaves every other entry untouched |
-| Web session | `Network/Cookies` | Saves and restores the file while Claude is closed |
-| Chat list | `claude-code-sessions/<account>/<organization>/local_<id>.json` | Matches the outgoing account's visible list by conversation ID and keeps extra target entries in the archive. An unreadable list leaves the target sidebar as it was |
-| Deleted chats | `deleted_<id>` next to the entries | Carries deletion markers forward when switching and checks them when manually importing |
-| Projects | `local-agent-mode-sessions/<account>/<organization>/spaces.json` | Adds missing projects, refreshes older ones, never deletes. Leaves out the claude.ai project link of the other organization, and a project you deleted in an account is not copied back |
-| Chats stopped by a switch | `interruptedByQuitAt` in their `local_<id>.json` | Sets Claude's own quit mark on the chats you chose to continue, removes it from the other accounts' copies and from chats you unchecked |
-| Conversations | `~/.claude/projects` | Reads the end of the ones written to in the last 30 minutes to see which chats are mid-reply. Never writes. They are shared by all accounts already |
-
-**Quitting Claude.** On Windows the switcher tells Claude's windows that Windows is closing the app, the way an installer does, and Claude quits within a second or two. A plain close request would only hide Claude in the tray. If Claude is still running after 20 seconds, it is ended.
-
-Before each switch, `config.json` and the cookie store are backed up. The last 10 backups are kept. If any step fails, the backup goes back and the error shows at the top of the menu.
-
-**Usage.** The saved token cache is decrypted in memory with Claude's own key (DPAPI on Windows, the keychain on macOS). The switcher then asks `api.anthropic.com` for each account's profile and usage, the same endpoints Claude and Claude Code use themselves. The active account is checked every two minutes, every minute from 85%, the others every ten. That endpoint is rate-limited per account and Claude polls it too, so after a `429` the switcher waits as long as the server asks, or backs off up to 30 minutes, and keeps showing the last numbers meanwhile. Claude's tokens last about a month, so a saved account keeps showing live usage without being signed in.
-
-**Usage status and desktop sign-in are separate.** A `429` displays a rate-limit warning and the retry time, which survives restarting the switcher. `401` means the usage endpoint rejected its credential; an expired or unavailable local usage token has its own warning. Timeouts and other request failures are temporary query errors. None of those alone proves that your current Claude desktop session has signed out. Cached figures are labeled as last known usage and failed checks are not used to choose an automatic account switch. Old ambiguous "signed out" warnings are rechecked instead of requiring an account to be added again.
-
-**Recovery without signing out.** The switcher prefers an existing profile-only desktop credential for the same account, organization and API audience, remembers one that works, and excludes Claude Code-specific credentials. A `401` or `403` allows a bounded fallback to another matching desktop credential, with at most two candidates per check. Rejected credentials are temporarily skipped; if none works, checks back off for 5, 10, 20, then 30 minutes. Retry metadata survives restarting the switcher and contains only hashes, not token values. A `429` stops all fallback immediately and its wait is never shortened. This does not refresh, revoke or rewrite Claude's credentials, and does not require signing out of a working Claude session. If all existing desktop credentials are rejected, the switcher reports the problem and waits; it cannot create a new authorization by itself.
-
-**Updates.** Once a day the switcher asks GitHub for the version number of the latest release. Nothing about you or your accounts goes along. When a newer version is out, the top of the menu says so. A click downloads it from the GitHub release, checks it against the published SHA-256, puts it in place of the running file and restarts on it. A download the switcher makes itself gets no SmartScreen or Gatekeeper warning. If that fails, the download page opens instead. Starting a newer version by hand also works: it asks the running one to quit and takes over. With winget, `winget upgrade SnlperStripes.ClaudeAccountSwitcher` does the same. To never contact GitHub, quit the switcher, add `"noUpdateCheck": true` to `state.json` and start it again.
-
-**The Store app quirk.** Programs started from inside the Store version of Claude, a Claude Code terminal for example, see a redirected AppData folder. The switcher notices when it was started that way and starts itself again through Explorer, so it sees the real files and survives Claude quitting.
-
-</details>
-
-## Your data
-
-| | |
-| --- | --- |
-| Saved sign-ins, state, backups, log | `~/.claude-account-switcher` (`%USERPROFILE%\.claude-account-switcher` on Windows), **Open data folder** in the menu. On Windows, `webview` in there is the WebView2 profile of the window that asks which chats continue |
-| Tokens | Encrypted at rest as Claude stores them and only sent to `api.anthropic.com`, except when you explicitly create a Windows fork `.cas-account` export. That file is unencrypted and contains login credentials; keep it private and delete it after import. |
-| Network | `api.anthropic.com` for profiles and usage. `claude.ai` for web session identity and subscription dates. `api.github.com` once a day for the latest version number, off with `"noUpdateCheck": true` in `state.json`. `github.com` only when you click to update |
-| Remove an account | Quit the switcher, delete its folder under `accounts/` and its entry in `state.json` |
-| Uninstall | Turn off **Start at login**, quit, delete the binary and the data folder |
-
-## Command line
-
-```
-claude-account-switcher -status
+```powershell
+.\claude-account-switcher-windows-amd64.exe -status
 ```
 
-Prints every saved account with its usage and exits.
+打印所有已保存账号及其用量，然后退出。
 
-Use `-lang zh-CN` for Simplified Chinese or `-lang en` for English. The standard build defaults to English; a localized build can change the default without changing saved account data.
+## 从源码构建
 
-## Build
+需要 Windows 和 Go 1.26 或更新版本，无需 CGO。
 
-Go 1.26 or newer.
-
-```bash
-go test ./...
-go build -ldflags "-H=windowsgui -s -w" -o claude-account-switcher.exe .   # Windows
-CGO_ENABLED=1 go build -o claude-account-switcher .                        # macOS
+```powershell
+.\build.ps1              # vet、测试，用 go-winres 生成 Windows 资源，再构建
+.\build.ps1 -SkipTests   # 只构建
 ```
 
-Dependencies beyond the standard library: [`fyne.io/systray`](https://github.com/fyne-io/systray) for the tray icon, and for the window that asks which chats continue [`jchv/go-webview2`](https://github.com/jchv/go-webview2) on Windows and [`webview/webview_go`](https://github.com/webview/webview_go) on macOS. On Windows also `golang.org/x/sys`.
+输出 `dist\claude-account-switcher-windows-amd64.exe`，以及对应的 `.sha256` 和第三方许可证声明 `THIRD_PARTY_NOTICES.txt`。也可以直接构建（不会重新生成版本信息和清单）：
 
-To build a Windows executable that opens in Simplified Chinese when double-clicked:
-
-```bash
-go build -ldflags "-H=windowsgui -s -w -X main.defaultLanguage=zh-CN -X main.manualUpdateURL=https://github.com/50kg/claude-account-switcher/releases/latest" -o claude-account-switcher-zh-CN.exe .
+```powershell
+go build -ldflags "-H=windowsgui -s -w" -o claude-account-switcher.exe .
 ```
 
-For an optional offline session-index regression check, set `SESSION_INDEX_SAMPLE` to a deduplicated copy of `claude-code-sessions` and run `go test ./...`. The test works on a temporary copy and does not change the supplied sample. Never commit real account data or session indexes.
+标准库之外的依赖：[`fyne.io/systray`](https://github.com/fyne-io/systray)（托盘图标）、[`jchv/go-webview2`](https://github.com/jchv/go-webview2)（对话窗口）、[`wailsapp/go-webview2`](https://github.com/wailsapp/go-webview2) 的 `pkg/edge`（会员日期核验窗口）、[`modernc.org/sqlite`](https://gitlab.com/cznic/sqlite)（纯 Go，读写 Cookie 库）、`golang.org/x/sys`。推送 `v*` 标签后，GitHub Actions 构建 exe 并连同 `.sha256` 一起发布。
 
-## FAQ
+## 已知限制
 
-**Can the Claude desktop app be signed in to two accounts at once?**
-Not on its own. The app holds one sign-in at a time, and switching means signing out and waiting for an email code. The switcher keeps a saved sign-in for every account and swaps between them in about ten seconds.
+切换器依赖 Claude 桌面端当前的本地文件格式，而不是公开接口，Claude 更新可能改变它。遇到无法识别的格式时，切换器会停止、还原备份并在菜单中报错，不会猜测。它只切换桌面应用（包括其中的 Claude Code 聊天），不切换终端里 `claude` 命令的登录。
 
-**How do I switch Claude accounts without signing out?**
-Install the switcher, add each account once with **Add account…**, then pick an account from the tray menu. You never use Sign out again.
+## 参与贡献
 
-**What happens to my Claude Code chats when I switch accounts?**
-The target account follows the local chat list of the account you just left. Extra target entries are available in the archive, and the conversation files stay on disk.
+欢迎提交问题和 Pull Request，见 [CONTRIBUTING.md](CONTRIBUTING.md)。安全问题请按 [SECURITY.md](SECURITY.md) 私下报告。
 
-**What happens to a reply Claude is writing when I switch?**
-It stops, because Claude has to restart. Before Claude starts again, the switcher asks which of the stopped chats should go on, and Claude continues those by itself on the new account. See [Chats that were working](#chats-that-were-working).
+## 致谢与许可证
 
-**How do I see the usage of all my Claude accounts at once?**
-The tray menu shows 5-hour and weekly usage of every saved account, live, with when each limit resets. `claude-account-switcher -status` prints the same in a terminal.
+本项目源自 [SnlperStripes/claude-account-switcher](https://github.com/SnlperStripes/claude-account-switcher)，在此基础上做了大量修改并新增了许多功能，感谢原作者。
 
-**What can I do when I hit the Claude usage limit?**
-Switch to an account that has room left, or let **Auto-switch** do it for you shortly before the limit.
-
-**Does it work with the Microsoft Store version of Claude?**
-Yes. It finds the Store app's real data folder and works with the direct download too. Windows 10 and 11.
-
-**Does it work on macOS?**
-It builds for macOS (universal) in CI, but nobody has tested it on a real Mac yet. A [test report](https://github.com/SnlperStripes/claude-account-switcher/issues/new?template=macos_report.yml) helps.
-
-**Does it switch the Claude Code CLI in the terminal?**
-No. This switches the Claude desktop app, including the Claude Code chats inside it. The `claude` command in a terminal keeps its own sign-in, and the switcher does not touch it.
-
-**Do my sign-ins leave my machine?**
-Normal account storage stays encrypted, and usage requests only send tokens to `api.anthropic.com`. The Windows fork has one explicit exception: a user-created `.cas-account` migration file contains the selected account's unencrypted sign-in and cookies. Keep it private and delete it after import. The update menu in this Chinese build opens the fork's release page for manual downloads.
-
-**How do I update?**
-The menu says so when a new version is out; click it and the switcher updates itself and restarts. Or download the new file and start it, it replaces the running one. With winget, run `winget upgrade SnlperStripes.ClaudeAccountSwitcher`. Your accounts and settings stay in the data folder.
-
-## Caveats
-
-This relies on how the Claude desktop app stores its files today, not on a published interface. An app update can change that. When it does, the switcher fails loudly, restores its backup and says so in the menu. It does not guess.
-
-## Contributing
-
-Bug reports, ideas and pull requests are welcome, see [CONTRIBUTING.md](CONTRIBUTING.md).
-Got a Mac? A [macOS test report](https://github.com/SnlperStripes/claude-account-switcher/issues/new?template=macos_report.yml) helps a lot, even if everything just worked.
-Found a security problem? Please report it privately, see [SECURITY.md](SECURITY.md).
-If the switcher saves you time, a star helps other people with more than one account find it.
-
-## License
-
-[Apache 2.0](LICENSE). Use it, change it, ship it, sell it.
-
-**Keep the credit.** If you pass this on, changed or not, include the [`NOTICE`](NOTICE) file, which names the author and links back here, and say what you changed.
-
-Usage sync defaults to the existing adaptive schedule: active account every 2 minutes, 1 minute at 85% or above, and other accounts every 10 minutes. Settings allows 1–1440 minutes for all accounts or a return to Smart mode. Interval and height preferences share ui.json without overwriting each other. Sync usage now refreshes known accounts without discovering sign-ins, reading chat files, importing chats, restarting Claude or running automatic switching. It respects server/auth retry waits, prevents overlapping queries and reports updated, waiting and failed counts. Longer configured intervals do not relax the freshness requirements for automatic switching.
+以 [Apache 2.0](LICENSE) 许可证发布。再分发（无论是否修改）时请附上 [`NOTICE`](NOTICE) 文件，并说明所做的修改。

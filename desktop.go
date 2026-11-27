@@ -19,8 +19,8 @@ func (d desktop) sessionsDir() string    { return filepath.Join(d.dir, "claude-c
 func (d desktop) spacesDir() string      { return filepath.Join(d.dir, "local-agent-mode-sessions") }
 
 // cookieFiles hold the claude.ai web session. They are locked while the app runs.
-// Newer Chromium builds keep them in Network/, the macOS app keeps them in the
-// data folder itself.
+// Newer Chromium builds keep them in Network/, older ones in the data folder
+// itself.
 func (d desktop) cookieFiles() []string {
 	base := d.dir
 	if _, err := os.Stat(filepath.Join(d.dir, "Network")); err == nil {
@@ -96,6 +96,14 @@ func readObject(path string) (*object, error) {
 			return nil, err
 		}
 		o.set(tok.(string), v)
+	}
+	// More() also stops at the end of the input: a cut-off file must not
+	// pass as a smaller object that a later write would then save.
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('}') {
+		return nil, fmt.Errorf(tr("%s: not a JSON object", "%s：配置内容不是有效的 JSON 对象"), path)
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return nil, fmt.Errorf(tr("%s: not a JSON object", "%s：配置内容不是有效的 JSON 对象"), path)
 	}
 	return o, nil
 }

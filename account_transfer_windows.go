@@ -1,5 +1,3 @@
-//go:build windows
-
 package main
 
 import (
@@ -17,7 +15,6 @@ var (
 	transferSaveDialog  = transferComdlg.NewProc("GetSaveFileNameW")
 	transferOpenDialog  = transferComdlg.NewProc("GetOpenFileNameW")
 	transferDialogError = transferComdlg.NewProc("CommDlgExtendedError")
-	transferMessageBox  = user32.NewProc("MessageBoxW")
 )
 
 type transferOpenFilename struct {
@@ -109,10 +106,9 @@ func showUnencryptedTransferWarning(export bool) bool {
 		title = tr("Import unencrypted account", "导入未加密账号")
 		body = tr("Only import a file you created and trust. The switcher will add its account profile without changing the current Claude sign-in. Continue?", "只导入你自己创建并信任的文件。切换器会添加账号档案，不会更改 Claude 当前登录。是否继续？")
 	}
-	result, _, _ := transferMessageBox.Call(0,
-		uintptr(unsafe.Pointer(windows.StringToUTF16Ptr(body))),
-		uintptr(unsafe.Pointer(windows.StringToUTF16Ptr(title))),
-		0x00000004|0x00000030|0x00000100) // Yes/No, warning icon, default No.
+	// Yes/No, warning icon, default No, in front of the window the menu left.
+	result, _ := windows.MessageBox(0, windows.StringToUTF16Ptr(body), windows.StringToUTF16Ptr(title),
+		windows.MB_YESNO|windows.MB_ICONWARNING|windows.MB_DEFBUTTON2|windows.MB_SETFOREGROUND)
 	return result == 6 // IDYES
 }
 
@@ -157,16 +153,13 @@ func handleAccountExport(s *switcher, uuid string) error {
 func showAccountExportResult(path string, err error) {
 	title := tr("Account export completed", "账号导出成功")
 	body := fmt.Sprintf(tr("The account was exported.\n\nSaved to:\n%s", "账号已导出。\n\n保存位置：\n%s"), path)
-	icon := uintptr(0x00000040) // MB_ICONINFORMATION
+	icon := uint32(windows.MB_ICONINFORMATION)
 	if err != nil {
 		title = tr("Account export failed", "账号导出失败")
 		body = fmt.Sprintf(tr("The account could not be exported.\n\n%s", "账号未能导出。\n\n%s"), err)
-		icon = 0x00000010 // MB_ICONERROR
+		icon = windows.MB_ICONERROR
 	}
-	transferMessageBox.Call(0,
-		uintptr(unsafe.Pointer(windows.StringToUTF16Ptr(body))),
-		uintptr(unsafe.Pointer(windows.StringToUTF16Ptr(title))),
-		icon|0x00010000) // MB_OK | MB_SETFOREGROUND
+	_, _ = windows.MessageBox(0, windows.StringToUTF16Ptr(body), windows.StringToUTF16Ptr(title), windows.MB_OK|icon|windows.MB_SETFOREGROUND)
 }
 
 func handleAccountImport(s *switcher) error {

@@ -229,7 +229,8 @@ func checkAccountDeletionPath(root *os.Root, path string) error {
 		if err != nil {
 			return err
 		}
-		if info.Mode()&os.ModeSymlink != 0 {
+		// Junctions report ModeIrregular rather than ModeSymlink.
+		if info.Mode()&(os.ModeSymlink|os.ModeIrregular) != 0 {
 			return errors.New(tr("Account data contains a linked path; deletion stopped", "账号数据包含链接路径，已停止删除"))
 		}
 	}

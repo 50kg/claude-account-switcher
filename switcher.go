@@ -8,7 +8,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -30,6 +29,9 @@ type Account struct {
 	Problem       string       `json:"problem,omitempty"`
 	// A rate limit belongs to the usage endpoint, not the desktop sign-in.
 	UsageRetryAt time.Time `json:"usageRetryAt,omitempty"`
+	// How old usage may be before the menu shows it as last known. Set on
+	// snapshot copies only; zero means idleFresh.
+	freshFor time.Duration
 }
 
 func (a *Account) label() string {
@@ -157,6 +159,11 @@ func newSwitcher(dir string) *switcher {
 		if a.UsageRetryAt.After(time.Now()) {
 			s.backoff[a.UUID] = a.UsageRetryAt
 		}
+		// A failed billing read is retried once per start; only a server's
+		// rate limit keeps its deadline.
+		if b := a.Billing; b != nil && b.Failed && b.Reason != "" && b.Reason != "limited" {
+			b.NextCheck = time.Time{}
+		}
 	}
 	for uuid, meta := range s.st.UsageCredentials {
 		if meta != nil && meta.RetryAt.After(s.backoff[uuid]) {
@@ -279,15 +286,20 @@ func (s *switcher) check(ctx context.Context) (string, func() error) {
 		s.mu.Unlock()
 	}
 
-	lastChat := lastChatWrite(s.app().sessionsDir())
+	// Only spend weekly waits for idle chats; skip the scan of every chat
+	// file otherwise.
+	var lastChat time.Time
+	s.mu.Lock()
+	spend := s.st.SpendWeekly
+	s.mu.Unlock()
+	if spend {
+		lastChat = lastChatWrite(s.app().sessionsDir())
+	}
 	return s.afterUsageCheck(added, desktopRunning(), lastChat, time.Now())
 }
 
 func accountAddedNotice() string {
-	if runtime.GOOS == "windows" {
-		return tr("Account added. Use Settings → Import chats from all accounts.", "账号已添加；聊天请手动导入：设置 → 导入所有账号的聊天。")
-	}
-	return tr("Account added. Use Import chats from all accounts in the menu.", "账号已添加；请在菜单中选择“导入所有账号的聊天”。")
+	return tr("Account added. Use Settings → Import chats from all accounts.", "账号已添加；聊天请手动导入：设置 → 导入所有账号的聊天。")
 }
 
 // afterUsageCheck finishes registration without restarting the newly signed-in
@@ -567,6 +579,11 @@ func (s *switcher) importChats() error {
 		if a == nil {
 			return errors.New(tr("no signed-in account", "当前没有已登录的账号"))
 		}
+		// Claude is closed, so its cookie store is readable: keep a current
+		// copy, which billing needs while Claude runs again.
+		if err := s.saveActive(active); err != nil {
+			log.Printf("save sign-in of %s: %v", a.label(), err)
+		}
 		n, err := syncSessions(s.app().sessionsDir(), a.UUID, a.Org)
 		log.Printf("%d chats imported into %s", n, a.label())
 		s.importProjects(a)
@@ -653,11 +670,20 @@ func (s *switcher) snapshot() snapshot {
 	defer s.mu.Unlock()
 	snap := snapshot{Active: s.active, AutoSwitch: s.st.AutoSwitch, SpendWeekly: s.st.SpendWeekly, Threshold: s.st.Threshold,
 		Status: s.status, Note: s.autoNote(time.Now()), Busy: s.busy.Load(), Syncing: s.usageSyncing.Load(), RefreshMinutes: s.refreshMinutes}
-	if manualUpdateURL == "" && !s.st.NoUpdateCheck && newerVersion(s.st.LatestVersion, version) {
+	if !s.st.NoUpdateCheck && newerVersion(s.st.LatestVersion, version) {
 		snap.Update = s.st.LatestVersion
 	}
+	// A longer auto-sync interval stretches what counts as fresh in the menu,
+	// so numbers that arrive on schedule are not greyed out in between.
+	// Automatic switching keeps its own, stricter limit.
+	fresh := idleFresh
+	if s.refreshMinutes > 0 {
+		fresh = max(fresh, time.Duration(s.refreshMinutes)*time.Minute+5*time.Minute)
+	}
 	for _, a := range s.st.Accounts {
-		snap.Accounts = append(snap.Accounts, *a)
+		account := *a
+		account.freshFor = fresh
+		snap.Accounts = append(snap.Accounts, account)
 	}
 	return snap
 }

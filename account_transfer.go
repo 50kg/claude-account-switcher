@@ -1,5 +1,3 @@
-//go:build windows
-
 package main
 
 import (
@@ -40,13 +38,18 @@ type accountTransferAccount struct {
 }
 
 func (s *switcher) exportAccount(uuid, destination string) error {
-	if s.usageSyncing.Load() || !s.busy.CompareAndSwap(false, true) {
+	// Claim busy first, then look at the others: beginUsageSync does the
+	// reverse, so one of the two always sees the other.
+	if !s.busy.CompareAndSwap(false, true) {
 		return errors.New(tr("Wait for the current operation to finish", "请等待当前操作完成后再导出"))
 	}
 	defer func() {
 		s.busy.Store(false)
 		s.onChange()
 	}()
+	if s.usageSyncing.Load() || s.billingSyncing.Load() || s.billingWindow.Load() {
+		return errors.New(tr("Wait for the current operation to finish", "请等待当前操作完成后再导出"))
+	}
 	snap := s.snapshot()
 	var account *Account
 	for i := range snap.Accounts {
@@ -56,7 +59,10 @@ func (s *switcher) exportAccount(uuid, destination string) error {
 			break
 		}
 	}
-	if account == nil || destination == "" {
+	if account == nil {
+		return errors.New(tr("unknown account", "未找到该账号"))
+	}
+	if destination == "" {
 		return errors.New(tr("Account export was cancelled", "已取消账号导出"))
 	}
 	if !validTransferAccount(accountTransferAccount{UUID: account.UUID, Org: account.Org, Name: account.Name, Email: account.Email, Plan: account.Plan, Note: account.Note}) {
@@ -264,13 +270,16 @@ func writeAccountTransfer(destination, sourceDir string, manifest accountTransfe
 }
 
 func (s *switcher) importAccount(source string) (*Account, error) {
-	if s.usageSyncing.Load() || !s.busy.CompareAndSwap(false, true) {
+	if !s.busy.CompareAndSwap(false, true) {
 		return nil, errors.New(tr("Wait for the current operation to finish", "请等待当前操作完成后再导入"))
 	}
 	defer func() {
 		s.busy.Store(false)
 		s.onChange()
 	}()
+	if s.usageSyncing.Load() || s.billingSyncing.Load() || s.billingWindow.Load() {
+		return nil, errors.New(tr("Wait for the current operation to finish", "请等待当前操作完成后再导入"))
+	}
 	info, err := os.Stat(source)
 	if err != nil {
 		return nil, err
@@ -349,7 +358,9 @@ func (s *switcher) importAccount(source string) (*Account, error) {
 	if err := s.commitImportedAccount(account, stage); err != nil {
 		return nil, err
 	}
-	return account, nil
+	// The listed account is now updated under s.mu; callers get a copy.
+	imported := *account
+	return &imported, nil
 }
 
 func encryptTransferAuth(manifest accountTransferManifest) (map[string]json.RawMessage, error) {
@@ -450,20 +461,26 @@ func copyAccountTransferEntry(file *zip.File, destination string, limit uint64) 
 	return nil
 }
 
+// The account and organization IDs both become folder names (accounts/<uuid>,
+// claude-code-sessions/<uuid>/<org>), so an imported file may not choose a path.
 func validTransferAccount(a accountTransferAccount) bool {
-	if a.UUID == "" || len(a.UUID) > 128 || strings.TrimSpace(a.UUID) != a.UUID || strings.HasSuffix(a.UUID, ".") {
+	return safePathID(a.UUID) && (a.Org == "" || safePathID(a.Org)) &&
+		len(a.Name) <= 512 && len(a.Email) <= 512 && len(a.Plan) <= 128 && validAccountNote(a.Note)
+}
+
+// safePathID accepts one plain folder name: letters, digits, '-' and '_',
+// and no Windows device name.
+func safePathID(id string) bool {
+	if id == "" || len(id) > 128 {
 		return false
 	}
-	for _, r := range a.UUID {
+	for _, r := range id {
 		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_') {
 			return false
 		}
 	}
-	device := strings.ToUpper(strings.SplitN(a.UUID, ".", 2)[0])
-	if device == "CON" || device == "PRN" || device == "AUX" || device == "NUL" || len(device) == 4 && (strings.HasPrefix(device, "COM") || strings.HasPrefix(device, "LPT")) && device[3] >= '1' && device[3] <= '9' {
-		return false
-	}
-	return len(a.Org) <= 512 && len(a.Name) <= 512 && len(a.Email) <= 512 && len(a.Plan) <= 128 && validAccountNote(a.Note)
+	device := strings.ToUpper(id)
+	return !(device == "CON" || device == "PRN" || device == "AUX" || device == "NUL" || len(device) == 4 && (strings.HasPrefix(device, "COM") || strings.HasPrefix(device, "LPT")) && device[3] >= '1' && device[3] <= '9')
 }
 
 func transformCookieValues(path string, transform func([]byte) ([]byte, error)) error {

@@ -49,8 +49,25 @@ func verifyBillingWeb(s *switcher, id string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 		key, err := s.webSessionFor(ctx, a, snap.Active)
+		if errors.Is(err, errBillingSessionBusy) {
+			return errors.New(tr("This account has no saved web session yet. Switch accounts or import chats once, then try again.", "此账号还没有保存的网页会话。请先切换一次账号或导入聊天，再试。"))
+		}
 		if err != nil {
 			return errors.New(tr("No readable Claude web session for this account", "无法读取此账号的 Claude 网页登录会话"))
+		}
+		// The API host normally answers at once; the window is the fallback.
+		quick, stop := context.WithTimeout(ctx, 12*time.Second)
+		direct, err := fetchBilling(quick, key, a.UUID, a.Org)
+		stop()
+		var limit *rateLimited
+		switch {
+		case err == nil:
+			direct.NextCheck = time.Now().Add(billingInterval)
+			return s.finishBillingCheck(a, direct)
+		case errors.Is(err, errBillingAccess):
+			return errors.New(tr("Claude did not grant access to this account's billing", "Claude 未授权读取此账号的账单"))
+		case errors.As(err, &limit):
+			return err
 		}
 		exe, err := os.Executable()
 		if err != nil {
@@ -68,9 +85,9 @@ func verifyBillingWeb(s *switcher, id string) error {
 				time.Sleep(100 * time.Millisecond)
 			}
 		}()
-		in, _ := json.Marshal(billingWebRequest{id, a.Org, key, dir, language})
+		in, _ := json.Marshal(billingWebRequest{id, a.Org, key, dir, currentLanguage()})
 		defer clear(in)
-		cmd := exec.CommandContext(ctx, exe, "-billing-web")
+		cmd := exec.CommandContext(ctx, exe, billingWebFlag)
 		cmd.Stdin = bytes.NewReader(in)
 		out, err := cmd.Output()
 		if err != nil {
@@ -98,20 +115,21 @@ func verifyBillingWeb(s *switcher, id string) error {
 		if b.Date != "" && billingDay(b.Date) == "" {
 			return errBillingUnavailable
 		}
-		s.mu.Lock()
-		dest := s.account(id)
-		if dest == nil || dest.Org != a.Org {
-			s.mu.Unlock()
-			return errBillingUnavailable
-		}
-		dest.Billing = &b
-		s.saveState()
-		s.mu.Unlock()
-		a.Billing = &b
-		s.setStatus(a.label() + " · " + a.billingText(time.Now()))
-		return nil
+		return s.finishBillingCheck(a, b)
 	}
 	return errBillingUnavailable
+}
+
+func (s *switcher) finishBillingCheck(a Account, b billingInfo) error {
+	s.mu.Lock()
+	ok := s.storeBilling(a, b)
+	s.mu.Unlock()
+	if !ok {
+		return errBillingUnavailable
+	}
+	a.Billing = &b
+	s.setStatus(a.label() + " · " + a.billingText(time.Now()))
+	return nil
 }
 
 func runBillingWeb() int {

@@ -97,6 +97,11 @@ func (w *quotaMenuWindow) finishAccountOrderDrag(commit bool) {
 		w.invalidate()
 		return
 	}
+	// A refresh during the drag may have changed the list under it.
+	if drag.Source < 0 || drag.Source >= len(w.view.Accounts) {
+		w.invalidate()
+		return
+	}
 	accounts := append([]quotaMenuAccount(nil), w.view.Accounts...)
 	moved := accounts[drag.Source]
 	accounts = append(accounts[:drag.Source], accounts[drag.Source+1:]...)

@@ -145,3 +145,37 @@ func TestQuotaMenuPlacementStaysInsideNegativeAndScaledWorkAreas(t *testing.T) {
 		}
 	}
 }
+
+// Settings → Language switches the interface at once and remembers it.
+func TestLanguageSwitchFromSettings(t *testing.T) {
+	useLanguage(t, "en")
+	s := newSwitcher(t.TempDir())
+	tr_ := &tray{s: s, updates: make(chan struct{}, 1)}
+	w := &quotaMenuWindow{}
+	found := false
+	for _, c := range w.choices("settings") {
+		if c.Popup == "language" && c.Label == "Language: English" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("Settings has no language entry")
+	}
+	choices := w.choices("language")
+	if len(choices) != 2 || choices[0].Label != "简体中文" || choices[1].Label != "English" || !choices[1].Checked || choices[0].Checked {
+		t.Fatalf("language choices = %+v", choices)
+	}
+	if err := tr_.handleQuotaMenuAction(choices[0].Action); err != nil {
+		t.Fatal(err)
+	}
+	if currentLanguage() != langChinese || tr("Settings", "设置") != "设置" {
+		t.Fatal("language did not switch")
+	}
+	p, err := loadQuotaMenuPreferences(tr_.uiPath())
+	if err != nil || p.Language != langChinese {
+		t.Fatalf("language not saved: %+v, %v", p, err)
+	}
+	if err := tr_.handleQuotaMenuAction(quotaMenuAction{Kind: "language", Language: "fr"}); err == nil || currentLanguage() != langChinese {
+		t.Fatal("accepted an unsupported language")
+	}
+}

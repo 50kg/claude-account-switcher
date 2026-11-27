@@ -1,6 +1,6 @@
 package main
 
-// Submenus and restart confirmations share the quota menu's painter and
+// Submenus and confirmations share the quota menu's painter and
 // message loop. They never open a second system menu or dispatch background
 // account actions while the user is only reading the menu.
 func (p *qmPainter) overlay() {
@@ -37,6 +37,8 @@ func (p *qmPainter) overlay() {
 		title = tr("Auto-switch threshold", "自动切换阈值")
 	} else if o.Kind == "sort" {
 		title = tr("Account order", "账号排序")
+	} else if o.Kind == "language" {
+		title = "语言 / Language"
 	} else if o.Kind == "account-actions" {
 		title = tr("Account actions", "账号操作")
 	}

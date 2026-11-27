@@ -8,6 +8,14 @@ import (
 	"unsafe"
 )
 
+// Only the capture helper reads pixels back, so these stay out of the app.
+var (
+	qmGetDC     = user32.NewProc("GetDC")
+	qmReleaseDC = user32.NewProc("ReleaseDC")
+	qmCreateDIB = qmGDI.NewProc("CreateDIBSection")
+	qmFlush     = qmGDI.NewProc("GdiFlush")
+)
+
 // capture paints the actual GDI implementation into an isolated test bitmap.
 // It does not capture the desktop or another application's window.
 func (w *quotaMenuWindow) capture(path string) error {

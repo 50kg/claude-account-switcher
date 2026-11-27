@@ -41,8 +41,9 @@ func syncSessions(root, account, org string) (int, error) {
 		if err != nil {
 			log.Printf("Skip session index folder %s: %v", dir, err)
 			if samePath(dir, target) {
-				// Without the target's indexes, importing could overwrite its entries.
-				return 0, nil
+				// Without the target's indexes, importing could overwrite its
+				// entries. Say so instead of reporting 0 chats imported.
+				return 0, fmt.Errorf(tr("read the chat list of the current account: %w", "读取当前账号的聊天列表失败：%w"), err)
 			}
 			continue
 		}
@@ -154,11 +155,6 @@ func (s sessionIndex) identity() string {
 
 func (s sessionIndex) localID() string {
 	return strings.TrimSuffix(strings.TrimPrefix(s.name, "local_"), ".json")
-}
-
-func lastActivity(path string) (int64, error) {
-	entry, err := readSessionIndex(path)
-	return entry.activity, err
 }
 
 func samePath(a, b string) bool {

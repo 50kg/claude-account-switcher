@@ -428,13 +428,13 @@ func TestNativeQuotaMenuChild(t *testing.T) {
 		imageErr = w.capture(filepath.Join(dir, "native-settings.png"))
 		counts := map[string]int{}
 		for _, h := range w.hits {
-			if h.Popup != "" && h.Popup != "interval" {
+			if h.Popup != "" && h.Popup != "interval" && h.Popup != "language" {
 				t.Error("settings unexpectedly added a nested submenu")
 			}
 			counts[h.Action.Kind]++
 		}
-		if len(w.hits) != 8 {
-			t.Errorf("settings has %d actions, want eight", len(w.hits))
+		if len(w.hits) != 9 {
+			t.Errorf("settings has %d actions, want nine", len(w.hits))
 		}
 		for _, kind := range []string{"spend", "autostart", "import", "folder", "update", "sync"} {
 			if counts[kind] != 1 {
@@ -691,7 +691,7 @@ func TestNativeQuotaMenuChild(t *testing.T) {
 	nativeMenuDo(t, m, func(w *quotaMenuWindow) {
 		imageErr = w.capture(filepath.Join(dir, "native-settings-empty.png"))
 		r := w.overlay.Rect
-		if r.Y < 0 || r.Y+r.H > w.height || len(w.hits) != 7 {
+		if r.Y < 0 || r.Y+r.H > w.height || len(w.hits) != 8 {
 			t.Error("combined settings clipped its actions in an empty account list")
 		}
 		procSendMessage.Call(w.hwnd, 0x100, 36, 0)

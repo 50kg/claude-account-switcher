@@ -32,10 +32,10 @@ func TestModelUsageDisplayAndWarningsBothLanguages(t *testing.T) {
 			if notice := modelWeeklyNotice(a, now); !strings.HasPrefix(notice, "⚠ ") || !strings.Contains(notice, "82%") {
 				t.Fatalf("warning not visible in dedicated notice: %q", notice)
 			}
-			if tip := accountTooltip(a, 96, now); !strings.Contains(tip, tr("running low", "余量偏低")) || !strings.Contains(tip, "18%") || strings.Contains(tip, resetText(now.Add(48*time.Hour), now)) {
+			if tip := accountTooltip(a, now); !strings.Contains(tip, tr("running low", "余量偏低")) || !strings.Contains(tip, "18%") || strings.Contains(tip, resetText(now.Add(48*time.Hour), now)) {
 				t.Fatalf("compact tooltip lost the warning: %q", tip)
 			}
-			if got, want := compactRemainingText(a, now), tr("5h left 58% · week left 55% · Fable left 18%", "5小时余58% · 总周余55% · Fable余18%"); got != want {
+			if got, want := compactRemainingText(a, now), tr("5h left 58% · total week left 55% · Fable left 18%", "5小时余58% · 总周余55% · Fable余18%"); got != want {
 				t.Fatalf("compact remaining allowance = %q, want %q", got, want)
 			}
 			for _, tc := range []struct {
@@ -69,7 +69,7 @@ func TestRemainingTextDistinguishesUnknownZeroAndInvalid(t *testing.T) {
 	if got := compactRemainingText(a, now); got != "等待用量更新" {
 		t.Fatalf("missing usage = %q", got)
 	}
-	if tip := accountTooltip(a, 96, now); !strings.Contains(tip, "5小时 — · 总周 —") || strings.Contains(tip, "100%") || strings.Contains(tip, "0%") {
+	if tip := accountTooltip(a, now); !strings.Contains(tip, "5小时 — · 总周 —") || strings.Contains(tip, "100%") || strings.Contains(tip, "0%") {
 		t.Fatalf("missing usage was shown as a real percentage: %q", tip)
 	}
 	for _, tc := range []struct {
@@ -80,7 +80,7 @@ func TestRemainingTextDistinguishesUnknownZeroAndInvalid(t *testing.T) {
 		if got := compactRemainingText(a, now); !strings.Contains(got, "5小时余"+tc.want) || strings.Contains(got, "Fable") {
 			t.Fatalf("remaining text for %v = %q", tc.used, got)
 		}
-		if tip := accountTooltip(a, 96, now); !strings.Contains(tip, "5小时 "+tc.want) || strings.Contains(tip, "Fable") {
+		if tip := accountTooltip(a, now); !strings.Contains(tip, "5小时 "+tc.want) || strings.Contains(tip, "Fable") {
 			t.Fatalf("remaining tooltip for %v = %q", tc.used, tip)
 		}
 	}
@@ -97,7 +97,7 @@ func TestRemainingTextKeepsFailedAndStaleUsageSeparateFromLogin(t *testing.T) {
 			if got := compactRemainingText(a, now); !strings.HasPrefix(got, tr("usage check rate limited", "用量查询受限")) {
 				t.Fatalf("rate limit lost its explanation: %q", got)
 			}
-			tip := accountTooltip(a, 96, now)
+			tip := accountTooltip(a, now)
 			if !strings.Contains(tip, tr("Last known remaining: ", "上次剩余：")) || !strings.Contains(tip, "0%") || strings.Contains(tip, tr("limit reached", "已用尽")) || strings.Contains(tip, tr("signed out", "登录失效")) {
 				t.Fatalf("rate limit was presented as current exhaustion or sign-out: %q", tip)
 			}
@@ -106,12 +106,12 @@ func TestRemainingTextKeepsFailedAndStaleUsageSeparateFromLogin(t *testing.T) {
 			if got := compactRemainingText(a, now); !strings.HasPrefix(got, tr("Last known: ", "上次：")) {
 				t.Fatalf("stale menu usage was not labelled: %q", got)
 			}
-			if tip = accountTooltip(a, 96, now); !strings.Contains(tip, tr("Last known remaining: ", "上次剩余：")) || strings.Contains(tip, tr("limit reached", "已用尽")) {
+			if tip = accountTooltip(a, now); !strings.Contains(tip, tr("Last known remaining: ", "上次剩余：")) || strings.Contains(tip, tr("limit reached", "已用尽")) {
 				t.Fatalf("stale tooltip produced a current alert: %q", tip)
 			}
 			a.Usage.CheckedAt = now
 			a.Usage.Session = 80
-			if tip = accountTooltip(a, 96, now); !strings.Contains(tip, tr("Fable week limit reached", "Fable周已用尽")) || strings.Contains(tip, tr("5h running low", "5小时余量偏低")) {
+			if tip = accountTooltip(a, now); !strings.Contains(tip, tr("Fable week limit reached", "Fable周已用尽")) || strings.Contains(tip, tr("5h running low", "5小时余量偏低")) {
 				t.Fatalf("scoped exhaustion did not take precedence: %q", tip)
 			}
 			a.Usage.ModelWeekly[0].ResetsAt = now

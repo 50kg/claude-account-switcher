@@ -34,6 +34,11 @@ func (s *switcher) usageJobs(active string, now time.Time) []usageJob {
 		jobs = append(jobs, usageJob{uuid: active, new: true, profile: true})
 	}
 	for _, a := range s.st.Accounts {
+		// Archived accounts are set aside until restored, except the one Claude
+		// is signed in with: its usage drives the icon and auto switch.
+		if a.Archived && a.UUID != active {
+			continue
+		}
 		every := idleEvery
 		if a.UUID == active {
 			every = activeEvery

@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -75,6 +76,8 @@ func (b *billingInfo) text(now time.Time) string {
 				return tr("Billing rate limited · retry later", "会员日期查询受限，稍后重试")
 			case "session":
 				return tr("Billing session unavailable", "无法读取账单登录会话")
+			case "busy":
+				return tr("Subscription date: read after a switch or chat import", "会员日期：切换账号或导入聊天后读取")
 			case "access":
 				return tr("Billing access denied", "无法访问此账号的账单")
 			default:
@@ -138,16 +141,26 @@ var errBillingWeb = errors.New("web verification required")
 var errBillingAccess = errors.New("billing access denied")
 var errBillingSession = errors.New("billing session unavailable")
 
+// errBillingSessionBusy: Claude holds its cookie store open exclusively while
+// it runs, and the account has neither a saved copy nor a backup yet. The
+// next switch or chat import saves one.
+var errBillingSessionBusy = errors.New("billing session locked by Claude")
+
 // No redirect may carry a desktop web session away from the intended origin.
 var billingClient = &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 
+// billingGet reads Anthropic's own API host with the desktop's web session.
+// claude.ai/api puts Cloudflare's browser challenge in front of every
+// non-browser client, so the same read-only endpoints are asked on
+// api.anthropic.com, which accepts the session and serves them directly.
 func billingGet(ctx context.Context, key, path string, out any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://claude.ai/api/"+path, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiBase+"/api/"+path, nil)
 	if err != nil {
 		return err
 	}
 	req.AddCookie(&http.Cookie{Name: "sessionKey", Value: key})
 	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "claude-account-switcher/"+version)
 	res, err := billingClient.Do(req)
 	if err != nil {
 		return err
@@ -199,7 +212,9 @@ func parseBillingDetails(details map[string]json.RawMessage) billingInfo {
 	if json.Unmarshal(details["subscription_details_url"], &managementURL) == nil && managementURL == appleSubscriptionsURL {
 		b.Provider = "apple"
 	}
-	for _, field := range []string{"plan_ending_at", "plan_ending_before", "next_charge_at", "next_charge_date"} {
+	// next_charge_date is the calendar day Claude's billing page shows;
+	// next_charge_at can fall on the next local day east of UTC.
+	for _, field := range []string{"plan_ending_at", "plan_ending_before", "next_charge_date", "next_charge_at"} {
 		var value string
 		if json.Unmarshal(details[field], &value) == nil && billingDay(value) != "" {
 			b.Date, b.Ending = value, strings.HasPrefix(field, "plan_ending")
@@ -213,11 +228,13 @@ func (s *switcher) accountBilling(ctx context.Context, a Account, active string)
 	if !validBillingIdentity(a) {
 		return billingInfo{}, errBillingSession
 	}
-	if s.isAppleSubscription(ctx, a, active) {
-		return billingInfo{Provider: "apple"}, nil
-	}
+	// The subscription details name an App Store agreement themselves; the
+	// OAuth profile only answers that when no web session is readable.
 	key, err := s.webSessionFor(ctx, a, active)
 	if err != nil {
+		if s.isAppleSubscription(ctx, a, active) {
+			return billingInfo{Provider: "apple"}, nil
+		}
 		return billingInfo{}, err
 	}
 	return fetchBilling(ctx, key, a.UUID, a.Org)
@@ -243,18 +260,68 @@ func (s *switcher) webSessionFor(ctx context.Context, a Account, active string) 
 	if !validBillingIdentity(a) {
 		return "", errBillingSession
 	}
-	var key string
+	// The live store is the freshest, but Claude locks it while it runs.
 	if a.UUID == active {
-		key, _ = billingSessionKey(ctx, s.app().cookieFiles()[0])
-	}
-	if key == "" { // The live database may be locked while Claude is open.
-		var err error
-		key, err = billingSessionKey(ctx, filepath.Join(s.profileDir(a.UUID), "Cookies"))
-		if err != nil {
-			return "", errBillingSession
+		if key, err := billingSessionKey(ctx, s.app().cookieFiles()[0]); err == nil {
+			return key, nil
 		}
 	}
-	return key, nil
+	saved := filepath.Join(s.profileDir(a.UUID), "Cookies")
+	key, err := billingSessionKey(ctx, saved)
+	if err == nil {
+		return key, nil
+	}
+	if _, statErr := os.Stat(saved); !errors.Is(statErr, os.ErrNotExist) {
+		return "", errBillingSession // a saved copy without a usable session
+	}
+	// Never switched away from, so no saved sign-in yet: every restart by the
+	// switcher backed up the store of the account signed in at the time.
+	if key := s.backupSessionKey(ctx, a.UUID); key != "" {
+		return key, nil
+	}
+	if a.UUID == active {
+		return "", errBillingSessionBusy
+	}
+	return "", errBillingSession
+}
+
+// backupSessionKey reads the web session from the newest switcher backup
+// taken while uuid was signed in. fetchBilling still checks that the session
+// belongs to this account and organization before a date is accepted.
+func (s *switcher) backupSessionKey(ctx context.Context, uuid string) string {
+	entries, err := os.ReadDir(s.backupsDir())
+	if err != nil {
+		return ""
+	}
+	for i := len(entries) - 1; i >= 0; i-- { // timestamp names, oldest first
+		if !entries[i].IsDir() {
+			continue
+		}
+		dir := filepath.Join(s.backupsDir(), entries[i].Name())
+		cfg, err := readObject(filepath.Join(dir, "config.json"))
+		if err != nil {
+			continue
+		}
+		var id string
+		if raw, ok := cfg.get("lastKnownAccountUuid"); !ok || json.Unmarshal(raw, &id) != nil || id != uuid {
+			continue
+		}
+		if key, err := billingSessionKey(ctx, filepath.Join(dir, "Cookies")); err == nil {
+			return key
+		}
+	}
+	return ""
+}
+
+// storeBilling saves b for the account a was read from. Callers hold s.mu.
+func (s *switcher) storeBilling(a Account, b billingInfo) bool {
+	dest := s.account(a.UUID)
+	if dest == nil || dest.Org != a.Org {
+		return false
+	}
+	dest.Billing = &b
+	s.saveState()
+	return true
 }
 
 // Independent of quota polling: a blocked web session must never mark an
@@ -268,6 +335,9 @@ func (s *switcher) refreshBilling() {
 	for _, a := range snap.Accounts {
 		if s.busy.Load() {
 			return
+		}
+		if a.Archived && a.UUID != snap.Active {
+			continue
 		}
 		waiting := a.Billing != nil && time.Now().Before(a.Billing.NextCheck)
 		legacyFailure := waiting && a.Billing.Failed && a.Billing.Reason == ""
@@ -308,6 +378,8 @@ func (s *switcher) refreshBilling() {
 				delay = billingInterval
 			case errors.Is(err, errBillingAccess):
 				b.Reason = "access"
+			case errors.Is(err, errBillingSessionBusy):
+				b.Reason = "busy"
 			case errors.Is(err, errBillingSession):
 				b.Reason = "session"
 			}
@@ -316,9 +388,8 @@ func (s *switcher) refreshBilling() {
 			b.NextCheck = time.Now().Add(delay)
 		}
 		s.mu.Lock()
-		if dest := s.account(a.UUID); dest != nil && dest.Org == a.Org && dest.Billing == a.Billing {
-			dest.Billing = &b
-			s.saveState()
+		if dest := s.account(a.UUID); dest != nil && dest.Billing == a.Billing {
+			s.storeBilling(a, b)
 		}
 		s.mu.Unlock()
 		s.onChange()

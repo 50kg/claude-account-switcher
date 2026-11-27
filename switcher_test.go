@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -368,4 +369,27 @@ func TestCookieFilesFollowAppLayout(t *testing.T) {
 	if got, want := d.cookieFiles()[0], filepath.Join(d.dir, "Network", "Cookies"); got != want {
 		t.Fatalf("with Network/: %q, want %q", got, want)
 	}
+}
+
+// A cut-off or padded file must not be read as a smaller object that a later
+// write would save over the original.
+func TestReadObjectRejectsIncompleteFiles(t *testing.T) {
+	dir := t.TempDir()
+	for i, data := range []string{`{"a":1`, `{"a":1,"b":{"c":2}`, `{"a":1}{"b":2}`, `{"a":1} x`} {
+		path := filepath.Join(dir, fmt.Sprint(i))
+		write(t, path, data)
+		if _, err := readObject(path); err == nil {
+			t.Fatalf("accepted %q", data)
+		}
+	}
+	path := filepath.Join(dir, "ok")
+	write(t, path, "{\"a\":1}\n")
+	if _, err := readObject(path); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func lastActivity(path string) (int64, error) {
+	entry, err := readSessionIndex(path)
+	return entry.activity, err
 }

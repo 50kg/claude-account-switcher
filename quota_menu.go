@@ -50,6 +50,9 @@ func makeQuotaMenuView(s snapshot, startup bool, now time.Time) quotaMenuView {
 	if v.Status == "" {
 		v.Status = s.Note
 	}
+	if v.Status == "" && s.Update != "" {
+		v.Status = fmt.Sprintf(tr("Version %s is available · Settings → update", "发现新版本 %s · 可在“设置”中点击更新"), s.Update)
+	}
 	// The header owns in-flight feedback; a previous completion must not
 	// contradict it or be repeated beneath it.
 	if v.Syncing && isUsageSyncStatus(v.Status) {
@@ -139,6 +142,7 @@ type quotaMenuAction struct {
 	Kind, Account, Active string
 	Note                  string
 	SortMode              string
+	Language              string
 	AccountOrder          []string
 	Enabled, Confirmed    bool
 	Minutes               int
@@ -178,6 +182,10 @@ func validateQuotaMenuAction(a quotaMenuAction, s snapshot) error {
 		}
 	case "sort":
 		if !validQuotaMenuSortMode(a.SortMode) {
+			return reject()
+		}
+	case "language":
+		if a.Language == "" || !validLanguagePreference(a.Language) {
 			return reject()
 		}
 	case "order":

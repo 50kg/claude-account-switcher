@@ -5,8 +5,8 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for taking the time. Please **do not paste tokens, cookies or `config.json`** here.
-        The log below never contains tokens, but look over it before you post.
+        Thanks for taking the time. Please **do not paste tokens, cookies, `config.json`, `state.json` or a `.cas-account` file** here.
+        The log never contains tokens, but look over it before you post.
   - type: textarea
     id: what
     attributes:
@@ -17,12 +17,10 @@ body:
   - type: dropdown
     id: os
     attributes:
-      label: Operating system
+      label: Windows version
       options:
         - Windows 11
         - Windows 10
-        - macOS (Apple silicon)
-        - macOS (Intel)
     validations:
       required: true
   - type: dropdown
@@ -32,7 +30,6 @@ body:
       options:
         - Microsoft Store
         - Direct download from claude.ai
-        - macOS app
         - Not sure
     validations:
       required: true
@@ -46,13 +43,20 @@ body:
     id: switcher-version
     attributes:
       label: Switcher version
-      description: The first line of `switcher.log` names it.
-      placeholder: "0.1.2"
+      description: The release you downloaded. If it is the latest, **Settings → Check for updates** says "Version … is the latest".
+      placeholder: "1.0.0"
     validations:
       required: true
+  - type: dropdown
+    id: language
+    attributes:
+      label: Interface language
+      options:
+        - 简体中文
+        - English
   - type: textarea
     id: log
     attributes:
       label: Log excerpt
-      description: From `switcher.log` in the data folder (**Open data folder** in the tray menu). The last 30 lines around the problem are usually enough.
+      description: From `switcher.log` in the data folder (**Settings → Open data folder** in the tray menu). The log keeps earlier runs too, so copy the last 30 lines or so around the problem.
       render: text

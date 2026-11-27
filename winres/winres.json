@@ -3,7 +3,7 @@
     "#1": {
       "0409": {
         "identity": {
-          "name": "SnlperStripes.ClaudeAccountSwitcher",
+          "name": "50kg.ClaudeAccountSwitcher",
           "version": ""
         },
         "description": "Claude Account Switcher",
@@ -23,13 +23,13 @@
         },
         "info": {
           "0409": {
-            "CompanyName": "SnlperStripes",
+            "CompanyName": "50kg",
             "FileDescription": "Claude Account Switcher",
             "InternalName": "claude-account-switcher",
-            "LegalCopyright": "Copyright 2026 SnlperStripes, Apache License 2.0",
+            "LegalCopyright": "Copyright 2026 50kg; based on work by SnlperStripes. Apache License 2.0",
             "OriginalFilename": "claude-account-switcher-windows-amd64.exe",
             "ProductName": "Claude Account Switcher",
-            "Comments": "https://github.com/SnlperStripes/claude-account-switcher"
+            "Comments": "https://github.com/50kg/claude-account-switcher"
           }
         }
       }

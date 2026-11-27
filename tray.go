@@ -5,52 +5,28 @@ import (
 	"fmt"
 	"log"
 	"path/filepath"
-	"runtime"
 	"strings"
-	"sync"
 	"time"
 
 	"fyne.io/systray"
 )
 
-const maxAccounts = 8
-
+// The auto-switch thresholds the menu offers.
 var thresholds = []float64{90, 94, 96, 98}
 
+// tray owns the notification icon. Every command lives in the native quota
+// menu, which opens on either mouse button.
 type tray struct {
-	s             *switcher
-	status        *systray.MenuItem
-	modelNotice   *systray.MenuItem
-	update        *systray.MenuItem
-	accounts      [maxAccounts]*systray.MenuItem
-	accountIDsMu  sync.RWMutex
-	accountIDs    [maxAccounts]string
-	archiveMenu   *systray.MenuItem
-	archivedMenu  *systray.MenuItem
-	restoreMenu   *systray.MenuItem
-	archiveItems  []systemAccountMenuEntry
-	archivedItems []systemAccountMenuEntry
-	restoreItems  []systemAccountMenuEntry
-	auto          *systray.MenuItem
-	spend         *systray.MenuItem
-	thresholds    []*systray.MenuItem
-	add           *systray.MenuItem
-	importNow     *systray.MenuItem
-	autostart     *systray.MenuItem
-	lastIcon      string
-	updates       chan struct{}
-	menu          quotaMenu
-}
-
-type systemAccountMenuEntry struct {
-	ID   string
-	Item *systray.MenuItem
+	s        *switcher
+	lastIcon string
+	updates  chan struct{}
+	menu     quotaMenu
 }
 
 func (t *tray) onReady() {
 	systray.SetTooltip(tr("Claude Account Switcher", "Claude 账号切换器"))
 	t.setIcon(-1, defaultThreshold)
-	// Refresh the login entry without depending on either menu implementation.
+	// Rewrite the login entry so it follows this exe after a move or update.
 	if autostartEnabled() {
 		if err := setAutostart(true); err != nil {
 			log.Printf("refresh start at login: %v", err)
@@ -58,14 +34,10 @@ func (t *tray) onReady() {
 	}
 	t.menu = newQuotaMenu(func() quotaMenuView {
 		return makeQuotaMenuView(t.s.snapshot(), autostartEnabled(), time.Now())
-	}, t.handleQuotaMenuAction, t.s.setStatus, filepath.Join(t.s.dir, "ui.json"))
-	if t.menu != nil {
-		show := func() { go t.menu.show() }
-		systray.SetOnTapped(show)
-		systray.SetOnSecondaryTapped(show)
-	} else {
-		t.createSystemMenu()
-	}
+	}, t.handleQuotaMenuAction, t.s.setStatus, t.uiPath())
+	show := func() { go t.menu.show() }
+	systray.SetOnTapped(show)
+	systray.SetOnSecondaryTapped(show)
 
 	// Menu updates arrive from worker goroutines; one goroutine applies them.
 	t.s.onChange = func() {
@@ -84,89 +56,7 @@ func (t *tray) onReady() {
 	go t.updateLoop()
 }
 
-// Non-Windows platforms keep their system menu. Windows builds create only
-// the custom menu, so there is no second account-switching path to drift.
-func (t *tray) createSystemMenu() {
-	t.status = systray.AddMenuItem("", "")
-	t.status.Disable()
-	t.status.Hide()
-	t.modelNotice = systray.AddMenuItem("", "")
-	t.modelNotice.Disable()
-	t.modelNotice.Hide()
-	_, updateTip := updateMenuText("")
-	t.update = systray.AddMenuItem("", updateTip)
-	t.update.Hide()
-	for i := range t.accounts {
-		t.accounts[i] = systray.AddMenuItemCheckbox("", tr("Switch the Claude app to this account", "将 Claude 切换到此账号"), false)
-		t.accounts[i].Hide()
-	}
-	t.archiveMenu = systray.AddMenuItem(tr("Archive an account…", "归档账号…"), "")
-	t.archivedMenu = systray.AddMenuItem(tr("Archived accounts", "已归档账号"), "")
-	t.restoreMenu = systray.AddMenuItem(tr("Restore an archived account…", "恢复已归档账号…"), "")
-	t.archiveMenu.Hide()
-	t.archivedMenu.Hide()
-	t.restoreMenu.Hide()
-	systray.AddSeparator()
-	t.auto = systray.AddMenuItemCheckbox(tr("Auto-switch when nearly full", "额度接近用尽时自动切换"), tr("Switch to the account with the most room left", "自动切换到剩余额度最多的账号"), false)
-	limit := systray.AddMenuItem(tr("Auto-switch at", "自动切换阈值"), "")
-	for _, v := range thresholds {
-		t.thresholds = append(t.thresholds, limit.AddSubMenuItemCheckbox(fmt.Sprintf("%.0f%%", v), "", false))
-	}
-	t.spend = systray.AddMenuItemCheckbox(tr("Auto-switch to use up expiring weekly", "优先使用即将重置的周额度"), tr("Switch to an account whose weekly limit resets within a day with half or more of it unused", "自动切换到周额度将在一天内重置、且剩余至少一半周额度的账号"), false)
-	t.add = systray.AddMenuItem(tr("Add account…", "添加账号…"), tr("Restart Claude on its sign-in screen, your current account is kept", "保留当前账号的登录状态，重启 Claude 并打开登录页面"))
-	t.importNow = systray.AddMenuItem(tr("Import chats from all accounts", "导入所有账号的聊天"), tr("Restart Claude so every chat shows up in this account", "重启 Claude，让所有账号的聊天都显示在当前账号中"))
-	systray.AddSeparator()
-	t.autostart = systray.AddMenuItemCheckbox(tr("Start at login", "开机启动"), "", autostartEnabled())
-	folder := systray.AddMenuItem(tr("Open data folder", "打开数据文件夹"), "")
-	quit := systray.AddMenuItem(tr("Quit", "退出"), "")
-
-	for i, item := range t.accounts {
-		go func() {
-			for range item.ClickedCh {
-				snap := t.s.snapshot()
-				t.accountIDsMu.RLock()
-				id := t.accountIDs[i]
-				t.accountIDsMu.RUnlock()
-				if id != "" && id != snap.Active {
-					go t.s.run(tr("Switch", "切换账号"), func() error { return t.s.switchTo(id, byHand) })
-				}
-				t.s.onChange()
-			}
-		}()
-	}
-	for i, item := range t.thresholds {
-		go func() {
-			for range item.ClickedCh {
-				t.s.setThreshold(thresholds[i])
-			}
-		}()
-	}
-	go func() {
-		for {
-			select {
-			case <-t.auto.ClickedCh:
-				t.s.setAuto(!t.auto.Checked())
-			case <-t.spend.ClickedCh:
-				t.s.setSpendWeekly(!t.spend.Checked())
-			case <-t.add.ClickedCh:
-				go t.s.run(tr("Add account", "添加账号"), t.s.addAccount)
-			case <-t.importNow.ClickedCh:
-				go t.s.run(tr("Import", "导入聊天"), t.s.importChats)
-			case <-t.autostart.ClickedCh:
-				if err := setAutostart(!t.autostart.Checked()); err != nil {
-					t.s.setStatus(tr("Start at login: ", "设置开机启动失败：") + err.Error())
-				}
-				setChecked(t.autostart, autostartEnabled())
-			case <-t.update.ClickedCh:
-				go t.s.requestUpdate(context.Background(), shellOpen)
-			case <-folder.ClickedCh:
-				shellOpen(t.s.dir)
-			case <-quit.ClickedCh:
-				systray.Quit()
-			}
-		}
-	}()
-}
+func (t *tray) uiPath() string { return filepath.Join(t.s.dir, "ui.json") }
 
 // loop runs refresh every few seconds while a new sign-in is expected,
 // otherwise every minute; refresh decides which accounts are due.
@@ -187,9 +77,6 @@ func (t *tray) loop() {
 // updateLoop looks for a new release a minute after start, then every hour;
 // checkUpdate decides whether a day has passed since the last answer.
 func (t *tray) updateLoop() {
-	if manualUpdateURL != "" {
-		return
-	}
 	time.Sleep(time.Minute)
 	for {
 		t.s.checkUpdate(context.Background())
@@ -197,208 +84,24 @@ func (t *tray) updateLoop() {
 	}
 }
 
+// render updates the tooltip, the ring icon and an open menu.
 func (t *tray) render() {
 	snap := t.s.snapshot()
 	now := time.Now()
-	if t.menu != nil {
-		tip := tr("Claude Account Switcher", "Claude 账号切换器")
-		pct := -1.0
-		for _, a := range snap.Accounts {
-			if a.UUID == snap.Active {
-				tip = accountTooltip(a, snap.Threshold, now)
-				if a.Usage != nil {
-					pct = a.Usage.current(now).Session
-				}
-				break
-			}
-		}
-		systray.SetTooltip(tip)
-		t.setIcon(pct, snap.Threshold)
-		t.menu.update()
-		return
-	}
-
-	switch {
-	case snap.Status != "":
-		t.status.SetTitle(snap.Status)
-		t.status.Show()
-	case snap.Note != "":
-		t.status.SetTitle(snap.Note)
-		t.status.Show()
-	default:
-		t.status.Hide()
-	}
-	if title, _ := updateMenuText(snap.Update); title != "" {
-		t.update.SetTitle(title)
-		t.update.Show()
-	} else {
-		t.update.Hide()
-	}
-	accounts := unarchivedAccounts(snap.Accounts)
-	if len(accounts) == 0 && snap.Status == "" {
-		message := tr("Open Claude and sign in", "请打开 Claude 并登录账号")
-		if len(snap.Accounts) > 0 {
-			message = tr("All accounts are archived", "所有账号均已归档")
-		}
-		t.status.SetTitle(message)
-		t.status.Show()
-	}
-	t.updateAccountArchiveMenus(snap)
-
-	activePct := -1.0
-	modelNotice := ""
 	tip := tr("Claude Account Switcher", "Claude 账号切换器")
-	for i, item := range t.accounts {
-		if i >= len(accounts) {
-			item.Hide()
-			continue
-		}
-		a := accounts[i]
-		detail := compactRemainingText(a, now)
-		item.SetTitle(a.label() + menuTab + detail + " · " + a.billingText(now))
-		setChecked(item, a.UUID == snap.Active)
-		if snap.Busy {
-			item.Disable()
-		} else {
-			item.Enable()
-		}
-		item.Show()
+	pct := -1.0
+	for _, a := range snap.Accounts {
 		if a.UUID == snap.Active {
-			tip = accountTooltip(a, snap.Threshold, now)
-			modelNotice = modelWeeklyNotice(a, now)
+			tip = accountTooltip(a, now)
 			if a.Usage != nil {
-				activePct = a.Usage.current(now).Session
+				pct = a.Usage.current(now).Session
 			}
+			break
 		}
-	}
-	var ids [maxAccounts]string
-	for i := 0; i < len(accounts) && i < len(ids); i++ {
-		ids[i] = accounts[i].UUID
-	}
-	t.accountIDsMu.Lock()
-	t.accountIDs = ids
-	t.accountIDsMu.Unlock()
-	if modelNotice == "" {
-		t.modelNotice.Hide()
-	} else {
-		t.modelNotice.SetTitle(modelNotice)
-		t.modelNotice.Show()
 	}
 	systray.SetTooltip(tip)
-	t.setIcon(activePct, snap.Threshold)
-
-	setChecked(t.auto, snap.AutoSwitch)
-	setChecked(t.spend, snap.SpendWeekly)
-	for i, item := range t.thresholds {
-		setChecked(item, thresholds[i] == snap.Threshold)
-	}
-	for _, item := range []*systray.MenuItem{t.add, t.importNow} {
-		if snap.Busy {
-			item.Disable()
-		} else {
-			item.Enable()
-		}
-	}
-	if t.menu != nil {
-		t.menu.update()
-	}
-}
-
-func unarchivedAccounts(accounts []Account) []Account {
-	visible := make([]Account, 0, len(accounts))
-	for _, account := range accounts {
-		if !account.Archived {
-			visible = append(visible, account)
-		}
-	}
-	return visible
-}
-
-func archivedAccounts(accounts []Account) []Account {
-	archived := make([]Account, 0, len(accounts))
-	for _, account := range accounts {
-		if account.Archived {
-			archived = append(archived, account)
-		}
-	}
-	return archived
-}
-
-func (t *tray) updateAccountArchiveMenus(snap snapshot) {
-	busy := snap.Busy || snap.Syncing
-	active := unarchivedAccounts(snap.Accounts)
-	archived := archivedAccounts(snap.Accounts)
-	t.archiveItems = syncSystemAccountMenu(t.archiveMenu, t.archiveItems, active,
-		func(a Account) string { return tr("Archive ", "归档 ") + a.label() },
-		func(id string) {
-			go func() {
-				if err := t.s.setAccountArchived(id, true); err != nil {
-					t.s.setStatus(err.Error())
-				}
-			}()
-		}, busy)
-	t.archivedItems = syncSystemAccountMenu(t.archivedMenu, t.archivedItems, archived,
-		func(a Account) string { return tr("Switch to ", "切换到 ") + a.label() },
-		func(id string) {
-			if id != t.s.snapshot().Active {
-				go t.s.run(tr("Switch", "切换账号"), func() error { return t.s.switchTo(id, byHand) })
-			}
-		}, busy)
-	t.restoreItems = syncSystemAccountMenu(t.restoreMenu, t.restoreItems, archived,
-		func(a Account) string { return tr("Restore ", "恢复 ") + a.label() },
-		func(id string) {
-			go func() {
-				if err := t.s.setAccountArchived(id, false); err != nil {
-					t.s.setStatus(err.Error())
-				}
-			}()
-		}, busy)
-}
-
-func syncSystemAccountMenu(root *systray.MenuItem, entries []systemAccountMenuEntry, accounts []Account,
-	label func(Account) string, action func(string), busy bool) []systemAccountMenuEntry {
-	same := len(entries) == len(accounts)
-	if same {
-		for i, account := range accounts {
-			if entries[i].ID != account.UUID {
-				same = false
-				break
-			}
-		}
-	}
-	if !same {
-		for _, entry := range entries {
-			entry.Item.Remove()
-		}
-		entries = make([]systemAccountMenuEntry, 0, len(accounts))
-		for _, account := range accounts {
-			id := account.UUID
-			item := root.AddSubMenuItem(label(account), "")
-			entries = append(entries, systemAccountMenuEntry{ID: id, Item: item})
-			go func(item *systray.MenuItem, id string) {
-				for range item.ClickedCh {
-					action(id)
-				}
-			}(item, id)
-		}
-	} else {
-		for i, account := range accounts {
-			entries[i].Item.SetTitle(label(account))
-		}
-	}
-	if len(accounts) == 0 {
-		root.Hide()
-	} else {
-		root.Show()
-	}
-	for _, entry := range entries {
-		if busy {
-			entry.Item.Disable()
-		} else {
-			entry.Item.Enable()
-		}
-	}
-	return entries
+	t.setIcon(pct, snap.Threshold)
+	t.menu.update()
 }
 
 func (t *tray) handleQuotaMenuAction(action quotaMenuAction) error {
@@ -421,9 +124,15 @@ func (t *tray) handleQuotaMenuAction(action quotaMenuAction) error {
 	case "interval":
 		return t.s.setRefreshMinutes(action.Minutes)
 	case "sort":
-		return saveQuotaMenuSortMode(filepath.Join(t.s.dir, "ui.json"), action.SortMode)
+		return saveQuotaMenuSortMode(t.uiPath(), action.SortMode)
 	case "order":
-		return saveQuotaMenuAccountOrder(filepath.Join(t.s.dir, "ui.json"), action.AccountOrder)
+		return saveQuotaMenuAccountOrder(t.uiPath(), action.AccountOrder)
+	case "language":
+		if err := saveLanguagePreference(t.uiPath(), action.Language); err != nil {
+			return err
+		}
+		_ = setLanguage(action.Language)
+		t.s.onChange()
 	case "account-export":
 		return handleAccountExport(t.s, action.Account)
 	case "account-note":
@@ -448,24 +157,20 @@ func (t *tray) handleQuotaMenuAction(action quotaMenuAction) error {
 		if err := setAutostart(action.Enabled); err != nil {
 			return err
 		}
-		if t.autostart != nil {
-			setChecked(t.autostart, autostartEnabled())
-		}
 		t.s.onChange()
 	case "folder":
 		shellOpen(t.s.dir)
 	case "update":
-		t.s.requestUpdate(context.Background(), shellOpen)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+		t.s.requestUpdate(ctx)
 	case "quit":
 		systray.Quit()
 	}
 	return nil
 }
 
-// menuTab right-aligns the usage on Windows, where a tab in a menu title
-// starts a right-aligned column.
-var menuTab = map[bool]string{true: "\t", false: "    "}[runtime.GOOS == "windows"]
-
+// usageText is the one-line usage summary -status prints.
 func usageText(a Account, threshold float64, now time.Time) string {
 	problem := usageProblemText(a, now)
 	if a.Usage == nil {
@@ -520,14 +225,4 @@ func (t *tray) setIcon(pct, threshold float64) {
 	}
 	t.lastIcon = key
 	systray.SetIcon(trayIcon(pct, threshold))
-}
-
-func setChecked(item *systray.MenuItem, on bool) {
-	if on != item.Checked() {
-		if on {
-			item.Check()
-		} else {
-			item.Uncheck()
-		}
-	}
 }

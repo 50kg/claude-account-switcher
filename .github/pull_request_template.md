@@ -4,7 +4,9 @@
 
 ## Tested on
 
-- [ ] Windows, Microsoft Store Claude
-- [ ] Windows, direct download Claude
-- [ ] macOS
+- [ ] Windows 11
+- [ ] Windows 10
+- [ ] Microsoft Store Claude
+- [ ] Direct download Claude
+- [ ] Both interface languages (简体中文 / English), if strings changed
 - [ ] `go vet ./...` and `go test ./...` pass
